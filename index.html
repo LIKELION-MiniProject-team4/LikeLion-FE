@@ -1,0 +1,747 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>강의라운지 - 을지대 교수 평가 플랫폼</title>
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&display=swap"
+    />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200"
+    />
+    <style>
+      :root {
+        --primary-color: #4d69fa;
+        --primary-light: #f0f3ff;
+        --text-main: #1e2025;
+        --text-sub: #5f6470;
+        --text-muted: #a0a5b1;
+        --bg-main: #f8fafc;
+        --border-color: #e2e8f0;
+        --danger-color: #fa4d4d;
+      }
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+        font-family: 'Noto Sans KR', sans-serif;
+        letter-spacing: -0.3px;
+      }
+      body {
+        display: flex;
+        background: var(--bg-main);
+        min-height: 100vh;
+        color: var(--text-main);
+      }
+
+      /* 🧭 사이드바 */
+      .sidebar {
+        width: 240px;
+        min-width: 240px;
+        height: 100vh;
+        position: fixed;
+        top: 0;
+        left: 0;
+        border-right: 1px solid var(--border-color);
+        padding: 32px 24px;
+        display: flex;
+        flex-direction: column;
+        background: #fff;
+        z-index: 100;
+      }
+      .logo-box {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 16px;
+        font-weight: 700;
+        color: var(--text-main);
+        margin-bottom: 32px;
+      }
+      .logo-box span {
+        color: var(--primary-color);
+        font-weight: 800;
+      }
+      .menu-group {
+        margin-bottom: 24px;
+      }
+      .menu-title {
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--text-muted);
+        margin-bottom: 12px;
+        padding-left: 8px;
+      }
+      .menu-list {
+        list-style: none;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .menu-item {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 10px 12px;
+        border-radius: 8px;
+        cursor: pointer;
+        color: var(--text-sub);
+        font-weight: 500;
+        font-size: 13.5px;
+        transition: 0.2s;
+        text-decoration: none;
+      }
+      .menu-item:hover {
+        background: var(--bg-main);
+      }
+      .menu-item.active {
+        background: var(--primary-light);
+        color: var(--primary-color);
+        font-weight: 600;
+      }
+
+      .sidebar-footer {
+        margin-top: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .profile-card {
+        padding: 12px;
+        border-radius: 12px;
+        background: var(--bg-main);
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        border: 1px solid var(--border-color);
+      }
+      .profile-avatar {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        background: var(--primary-color);
+        color: #fff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 700;
+        font-size: 12px;
+      }
+      .profile-info h4 {
+        font-size: 12.5px;
+        font-weight: 600;
+      }
+      .profile-info p {
+        font-size: 11px;
+        color: var(--text-muted);
+      }
+      .logout-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        width: 100%;
+        padding: 8px;
+        font-size: 12px;
+        font-weight: 500;
+        color: var(--text-sub);
+        border: 1px solid var(--border-color);
+        background: #fff;
+        border-radius: 6px;
+        cursor: pointer;
+        transition: 0.2s;
+      }
+      .logout-btn:hover {
+        background: var(--bg-main);
+        color: var(--danger-color);
+        border-color: #fcdede;
+      }
+
+      /* 💻 메인 영역 */
+      .main-container {
+        flex: 1;
+        margin-left: 240px;
+        padding: 32px 48px;
+        min-height: 100vh;
+        background: #fff;
+        position: relative;
+      }
+
+      /* 🔍 검색 바 */
+      .search-wrapper {
+        max-width: 100%;
+        margin-bottom: 16px;
+        position: relative;
+      }
+      .search-input {
+        width: 100%;
+        padding: 14px 20px;
+        padding-right: 50px;
+        border: 1px solid var(--border-color);
+        border-radius: 10px;
+        font-size: 14px;
+        outline: none;
+        background: var(--bg-main);
+      }
+      .search-icon {
+        position: absolute;
+        right: 18px;
+        top: 50%;
+        transform: translateY(-50%);
+        color: var(--text-sub);
+        font-size: 22px;
+      }
+      .filter-container {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 24px;
+      }
+      .filter-select {
+        padding: 6px 14px;
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        background: #fff;
+        font-size: 13px;
+        color: var(--text-sub);
+        outline: none;
+        cursor: pointer;
+      }
+
+      /* 📄 헤더 구조 */
+      .breadcrumb {
+        font-size: 11px;
+        color: var(--text-muted);
+        margin-bottom: 16px;
+        display: flex;
+        gap: 4px;
+      }
+      .header-action-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+      }
+      .title-area {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .back-btn {
+        cursor: pointer;
+        color: var(--text-main);
+        font-size: 24px;
+      }
+
+      /* 🗂️ 카드 및 태그 디자인 */
+      .info-cards-grid {
+        display: grid;
+        grid-template-columns: 1fr 2fr;
+        gap: 16px;
+        margin-bottom: 28px;
+      }
+      .summary-card {
+        background: #fff;
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 20px;
+        min-height: 110px;
+      }
+      .summary-card-title {
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--text-muted);
+        margin-bottom: 8px;
+      }
+
+      .badge-idx {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 16px;
+        height: 16px;
+        background: var(--primary-color);
+        color: #fff;
+        border-radius: 50%;
+        font-size: 9px;
+        font-weight: 700;
+        margin-right: 6px;
+      }
+      .tag-pill {
+        display: inline-flex;
+        align-items: center;
+        padding: 6px 14px;
+        background: var(--bg-main);
+        border: 1px solid var(--border-color);
+        border-radius: 20px;
+        font-size: 12px;
+        color: var(--text-sub);
+        margin-right: 8px;
+        font-weight: 500;
+      }
+
+      /* 📑 인라인 탭 */
+      .tabs-header {
+        display: flex;
+        border-bottom: 1px solid var(--border-color);
+        margin-bottom: 24px;
+        gap: 8px;
+      }
+      .tab-item {
+        padding: 10px 16px;
+        cursor: pointer;
+        font-weight: 500;
+        color: var(--text-muted);
+        font-size: 13px;
+        position: relative;
+        transition: 0.2s;
+      }
+      .tab-item.active {
+        color: var(--primary-color);
+        font-weight: 700;
+      }
+      .tab-item.active::after {
+        content: '';
+        position: absolute;
+        bottom: -1px;
+        left: 0;
+        right: 0;
+        height: 2px;
+        background: var(--primary-color);
+      }
+
+      /* 📊 다이어그램 대시보드 */
+      .diagram-dashboard {
+        display: grid;
+        grid-template-columns: 1.4fr 1fr;
+        gap: 20px;
+        position: relative;
+      }
+      .dashboard-panel {
+        background: #fff;
+        border: 1px solid var(--border-color);
+        border-radius: 16px;
+        padding: 28px;
+        position: relative;
+      }
+
+      /* 📈 막대형 차트 */
+      .bar-chart-row {
+        margin-bottom: 14px;
+      }
+      .bar-chart-info {
+        display: flex;
+        justify-content: space-between;
+        font-size: 12px;
+        font-weight: 600;
+        margin-bottom: 6px;
+      }
+      .bar-chart-bg {
+        width: 100%;
+        height: 6px;
+        background: #e2e8f0;
+        border-radius: 10px;
+        overflow: hidden;
+      }
+      .bar-chart-fill {
+        height: 100%;
+        background: var(--primary-color);
+        border-radius: 10px;
+        width: 0%;
+        transition: width 0.6s ease-in-out;
+      }
+
+      /* 리스트 범용 화이트 카드 */
+      .item-list-card {
+        background: #fff;
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 20px;
+        margin-bottom: 12px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        transition: 0.2s;
+      }
+      .item-list-card:hover {
+        border-color: var(--primary-color);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.02);
+      }
+
+      .action-btn {
+        padding: 8px 16px;
+        border: 1px solid var(--border-color);
+        background: #fff;
+        color: var(--text-main);
+        border-radius: 6px;
+        cursor: pointer;
+        font-weight: 500;
+        font-size: 12.5px;
+        transition: 0.2s;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        text-decoration: none;
+      }
+      .action-btn:hover {
+        background: var(--bg-main);
+      }
+      .btn-blue {
+        background: var(--primary-color) !important;
+        color: #fff !important;
+        border: none !important;
+      }
+
+      .review-row-item {
+        padding: 18px 0;
+        border-bottom: 1px solid var(--border-color);
+      }
+      .review-row-item:last-child {
+        border-bottom: none;
+      }
+
+      /* 🔒 잠금 인프라 */
+      .blur-restricted-container {
+        position: relative;
+        overflow: hidden;
+        border-radius: 16px;
+      }
+      .blur-content-layer {
+        filter: blur(6px);
+        pointer-events: none;
+        user-select: none;
+      }
+      .lock-overlay-gate {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(255, 255, 255, 0.75);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        z-index: 10;
+        text-align: center;
+        padding: 20px;
+      }
+
+      /* 📁 파일 인증 마크 */
+      .file-upload-dropzone {
+        border: 2px dashed var(--border-color);
+        padding: 20px;
+        border-radius: 10px;
+        text-align: center;
+        background: var(--bg-main);
+        cursor: pointer;
+        transition: 0.2s;
+      }
+      .file-upload-dropzone:hover {
+        border-color: var(--primary-color);
+        background: var(--primary-light);
+      }
+      .file-uploaded-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 10px;
+        background: #e6fffa;
+        border: 1px solid #b2f5ea;
+        color: #00a3c4;
+        border-radius: 4px;
+        font-size: 12px;
+        font-weight: 500;
+        margin-top: 8px;
+      }
+
+      /* 🔐 인라인 전용 로그인/회원가입 폼 디자인 추가 */
+      .auth-center-box {
+        max-width: 420px;
+        margin: 40px auto;
+        background: #fff;
+        border: 1px solid var(--border-color);
+        border-radius: 16px;
+        padding: 32px;
+      }
+      .auth-tab-row {
+        display: flex;
+        border-bottom: 1px solid var(--border-color);
+        margin-bottom: 24px;
+      }
+      .auth-tab-btn {
+        flex: 1;
+        padding: 12px;
+        text-align: center;
+        cursor: pointer;
+        color: var(--text-muted);
+        font-size: 14px;
+        font-weight: 500;
+      }
+      .auth-tab-btn.active {
+        color: var(--primary-color);
+        font-weight: 700;
+        border-bottom: 2px solid var(--primary-color);
+      }
+      .form-group {
+        margin-bottom: 16px;
+      }
+      .form-group label {
+        display: block;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--text-sub);
+        margin-bottom: 6px;
+      }
+      .form-control {
+        width: 100%;
+        padding: 12px 14px;
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        font-size: 13.5px;
+        outline: none;
+        background: var(--bg-main);
+        transition: 0.2s;
+      }
+      .form-control:focus {
+        border-color: var(--primary-color);
+        background: #fff;
+      }
+
+      /* 📝 모달 창 전용 */
+      .modal-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.3);
+        backdrop-filter: blur(2px);
+        z-index: 9999;
+        display: none;
+        align-items: center;
+        justify-content: center;
+      }
+      .modal-window {
+        background: #fff;
+        border-radius: 16px;
+        padding: 28px;
+        width: 500px;
+        position: relative;
+      }
+      .modal-close {
+        position: absolute;
+        top: 20px;
+        right: 20px;
+        cursor: pointer;
+        color: var(--text-sub);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="sidebar">
+      <div class="logo-box">
+        <span class="material-symbols-outlined">school</span>
+        <div>
+          강의라운지
+          <p style="font-size: 9px; font-weight: 400; color: var(--text-muted)">
+            을지대 교수·족보 통합 허브
+          </p>
+        </div>
+      </div>
+
+      <div class="menu-group">
+        <div class="menu-title">둘러보기</div>
+        <ul class="menu-list">
+          <li
+            class="menu-item active"
+            id="menu-professor"
+            onclick="switchPage('professor')"
+          >
+            <span class="material-symbols-outlined">search</span>교수 검색
+          </li>
+          <li class="menu-item" id="menu-store" onclick="switchPage('store')">
+            <span class="material-symbols-outlined">local_mall</span>족보 스토어
+          </li>
+        </ul>
+      </div>
+
+      <div class="menu-group">
+        <div class="menu-title">내 활동</div>
+        <ul class="menu-list">
+          <li class="menu-item" id="menu-mypage" onclick="switchPage('mypage')">
+            <span class="material-symbols-outlined">person</span>마이페이지
+          </li>
+        </ul>
+      </div>
+
+      <div class="sidebar-footer">
+        <div class="profile-card" id="sidebarProfile"></div>
+        <button
+          class="logout-btn"
+          id="sidebarLogoutBtn"
+          onclick="executeLogout()"
+          style="display: none"
+        >
+          <span class="material-symbols-outlined" style="font-size: 16px"
+            >logout</span
+          >로그아웃
+        </button>
+      </div>
+    </div>
+
+    <div class="main-container">
+      <div id="searchSectionBlock">
+        <h1
+          id="pageMainHeading"
+          style="font-size: 20px; font-weight: 700; margin-bottom: 16px"
+        >
+          전공 교수 체크
+        </h1>
+        <div class="search-wrapper">
+          <input
+            type="text"
+            id="globalSearchInput"
+            class="search-input"
+            placeholder="검색어를 입력해 주세요..."
+            onkeyup="handleLiveSearch()"
+          />
+          <span class="material-symbols-outlined search-icon">search</span>
+        </div>
+        <div class="filter-container" id="filterOptionsContainer">
+          <select
+            class="filter-select"
+            id="deptFilter"
+            onchange="handleFilterChange()"
+          >
+            <option value="전체">학과 전체</option>
+            <option value="물리의학학과">물리의학학과</option>
+            <option value="첨단학부">첨단학부</option>
+          </select>
+        </div>
+      </div>
+
+      <div id="mainContentContainer"></div>
+    </div>
+
+    <div id="reviewModal" class="modal-overlay">
+      <div class="modal-window">
+        <span
+          class="material-symbols-outlined modal-close"
+          onclick="closeModal('reviewModal')"
+          >close</span
+        >
+        <h3 style="margin-bottom: 16px; font-weight: 700">
+          강의 평가 서류 작성
+        </h3>
+
+        <div
+          style="
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-bottom: 10px;
+          "
+        >
+          <div class="form-group">
+            <label>수강 학기</label>
+            <select id="revTerm" class="form-control">
+              <option value="2026년 1학기">2026년 1학기</option>
+              <option value="2025년 2학기">2025년 2학기</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>추천 평점 (1~5)</label>
+            <input
+              type="number"
+              id="revRating"
+              class="form-control"
+              min="1"
+              max="5"
+              value="5"
+            />
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px">
+          <div class="form-group">
+            <label>난이도</label
+            ><input
+              type="number"
+              id="m_diff"
+              class="form-control"
+              min="1"
+              max="5"
+              value="4"
+            />
+          </div>
+          <div class="form-group">
+            <label>과제량</label
+            ><input
+              type="number"
+              id="m_task"
+              class="form-control"
+              min="1"
+              max="5"
+              value="4"
+            />
+          </div>
+          <div class="form-group">
+            <label>시험범위 명확성</label
+            ><input
+              type="number"
+              id="m_exam"
+              class="form-control"
+              min="1"
+              max="5"
+              value="3"
+            />
+          </div>
+          <div class="form-group">
+            <label>피드백 속도</label
+            ><input
+              type="number"
+              id="m_feed"
+              class="form-control"
+              min="1"
+              max="5"
+              value="4"
+            />
+          </div>
+        </div>
+        <div class="form-group">
+          <label>수업 태도</label
+          ><input
+            type="number"
+            id="m_atti"
+            class="form-control"
+            min="1"
+            max="5"
+            value="4"
+          />
+        </div>
+
+        <div class="form-group" style="margin-top: 12px; margin-bottom: 20px">
+          <label>상세 코멘트 (최소 10자 이상)</label>
+          <textarea
+            id="revText"
+            class="form-control"
+            rows="3"
+            placeholder="후배들에게 피가 되고 살이 될 조언을 남겨주세요."
+          ></textarea>
+        </div>
+        <button
+          class="action-btn btn-blue"
+          style="width: 100%; padding: 12px; justify-content: center"
+          onclick="submitReviewAction()"
+        >
+          등록 완료
+        </button>
+      </div>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
