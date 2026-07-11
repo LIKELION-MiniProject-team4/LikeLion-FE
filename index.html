@@ -22,6 +22,7 @@
         --bg-main: #f8fafc;
         --border-color: #e2e8f0;
         --danger-color: #fa4d4d;
+        --success-color: #10b981;
       }
       * {
         box-sizing: border-box;
@@ -170,10 +171,10 @@
         position: relative;
       }
 
-      /* 🔍 검색 바 */
+      /* 🔍 검색 및 다중 필터 */
       .search-wrapper {
         max-width: 100%;
-        margin-bottom: 16px;
+        margin-bottom: 12px;
         position: relative;
       }
       .search-input {
@@ -196,11 +197,12 @@
       }
       .filter-container {
         display: flex;
+        flex-wrap: wrap;
         gap: 8px;
-        margin-bottom: 24px;
+        margin-bottom: 16px;
       }
       .filter-select {
-        padding: 6px 14px;
+        padding: 8px 14px;
         border: 1px solid var(--border-color);
         border-radius: 6px;
         background: #fff;
@@ -208,6 +210,37 @@
         color: var(--text-sub);
         outline: none;
         cursor: pointer;
+        min-width: 110px;
+      }
+
+      /* 메인 검색용 태그 선택 바 */
+      .search-tag-container {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-bottom: 24px;
+        padding-bottom: 16px;
+        border-bottom: 1px solid var(--border-color);
+      }
+      .search-tag-chip {
+        padding: 6px 12px;
+        border-radius: 16px;
+        border: 1px solid var(--border-color);
+        background: #fff;
+        font-size: 12px;
+        color: var(--text-sub);
+        cursor: pointer;
+        transition: 0.2s;
+      }
+      .search-tag-chip:hover {
+        border-color: var(--primary-color);
+        color: var(--primary-color);
+      }
+      .search-tag-chip.selected {
+        background: var(--primary-color);
+        color: #fff;
+        border-color: var(--primary-color);
+        font-weight: 600;
       }
 
       /* 📄 헤더 구조 */
@@ -272,14 +305,31 @@
       .tag-pill {
         display: inline-flex;
         align-items: center;
-        padding: 6px 14px;
+        padding: 8px 16px;
         background: var(--bg-main);
         border: 1px solid var(--border-color);
         border-radius: 20px;
-        font-size: 12px;
+        font-size: 12.5px;
         color: var(--text-sub);
         margin-right: 8px;
+        margin-bottom: 8px;
         font-weight: 500;
+        cursor: pointer;
+        transition: 0.2s;
+      }
+      .tag-pill:hover {
+        border-color: var(--primary-color);
+        background: var(--primary-light);
+        color: var(--primary-color);
+      }
+      .tag-pill.clicked {
+        background: #e6fffa;
+        border-color: var(--success-color);
+        color: var(--success-color);
+        cursor: default;
+      }
+      .tag-pill.clicked .badge-idx {
+        background: var(--success-color);
       }
 
       /* 📑 인라인 탭 */
@@ -457,7 +507,7 @@
         margin-top: 8px;
       }
 
-      /* 🔐 인라인 전용 로그인/회원가입 폼 디자인 추가 */
+      /* 🔐 인라인 로그인/회원가입 폼 */
       .auth-center-box {
         max-width: 420px;
         margin: 40px auto;
@@ -510,7 +560,7 @@
         background: #fff;
       }
 
-      /* 📝 모달 창 전용 */
+      /* 📝 모달 창 */
       .modal-overlay {
         position: fixed;
         top: 0;
@@ -541,6 +591,7 @@
     </style>
   </head>
   <body>
+    <!-- 🧭 좌측 네비게이션 -->
     <div class="sidebar">
       <div class="logo-box">
         <span class="material-symbols-outlined">school</span>
@@ -592,6 +643,7 @@
       </div>
     </div>
 
+    <!-- 💻 메인 대시보드 인프라 -->
     <div class="main-container">
       <div id="searchSectionBlock">
         <h1
@@ -605,11 +657,13 @@
             type="text"
             id="globalSearchInput"
             class="search-input"
-            placeholder="검색어를 입력해 주세요..."
+            placeholder="교수명 또는 담당 교과목을 입력해 주세요..."
             onkeyup="handleLiveSearch()"
           />
           <span class="material-symbols-outlined search-icon">search</span>
         </div>
+
+        <!-- 🔍 다중 필터 제어 영역 (학과 선택, 학년 선택 추가) -->
         <div class="filter-container" id="filterOptionsContainer">
           <select
             class="filter-select"
@@ -619,13 +673,32 @@
             <option value="전체">학과 전체</option>
             <option value="물리의학학과">물리의학학과</option>
             <option value="첨단학부">첨단학부</option>
+            <option value="간호학과">간호학과</option>
+            <option value="임상병리학과">임상병리학과</option>
           </select>
+          <select
+            class="filter-select"
+            id="gradeFilter"
+            onchange="handleFilterChange()"
+          >
+            <option value="전체">학년 전체</option>
+            <option value="1학년">1학년 대상</option>
+            <option value="2학년">2학년 대상</option>
+            <option value="3학년">3학년 대상</option>
+            <option value="4학년">4학년 대상</option>
+          </select>
+        </div>
+
+        <!-- 🏷️ 메인 검색용 태그 선택 바 영역 -->
+        <div class="search-tag-container" id="mainSearchTagBar">
+          <!-- 자바스크립트에서 동적 렌더링 -->
         </div>
       </div>
 
       <div id="mainContentContainer"></div>
     </div>
 
+    <!-- 📝 리뷰 작성 모달 -->
     <div id="reviewModal" class="modal-overlay">
       <div class="modal-window">
         <span
@@ -633,9 +706,7 @@
           onclick="closeModal('reviewModal')"
           >close</span
         >
-        <h3 style="margin-bottom: 16px; font-weight: 700">
-          강의 평가 서류 작성
-        </h3>
+        <h3 style="margin-bottom: 16px; font-weight: 700">강의평가 작성</h3>
 
         <div
           style="
@@ -685,7 +756,7 @@
               class="form-control"
               min="1"
               max="5"
-              value="4"
+              value="3"
             />
           </div>
           <div class="form-group">
@@ -696,7 +767,7 @@
               class="form-control"
               min="1"
               max="5"
-              value="3"
+              value="4"
             />
           </div>
           <div class="form-group">
@@ -724,12 +795,12 @@
         </div>
 
         <div class="form-group" style="margin-top: 12px; margin-bottom: 20px">
-          <label>상세 코멘트 (최소 10자 이상)</label>
+          <label>상세 후기 코멘트 (최소 10자 이상)</label>
           <textarea
             id="revText"
             class="form-control"
             rows="3"
-            placeholder="후배들에게 피가 되고 살이 될 조언을 남겨주세요."
+            placeholder="솔직한 강의 평가를 입력해 주세요. (등록 시 +3점)"
           ></textarea>
         </div>
         <button
@@ -737,7 +808,61 @@
           style="width: 100%; padding: 12px; justify-content: center"
           onclick="submitReviewAction()"
         >
-          등록 완료
+          리뷰 작성 완료 (+3점)
+        </button>
+      </div>
+    </div>
+
+    <!-- 📝 족보 등록 모달 -->
+    <div id="storeModal" class="modal-overlay">
+      <div class="modal-window">
+        <span
+          class="material-symbols-outlined modal-close"
+          onclick="closeModal('storeModal')"
+          >close</span
+        >
+        <h3 style="margin-bottom: 16px; font-weight: 700">
+          비밀 족보 자료 등록
+        </h3>
+        <p
+          style="
+            font-size: 12px;
+            color: var(--danger-color);
+            margin-bottom: 12px;
+          "
+        >
+          ⚠️ 저작권 이슈 방지를 위해 PDF/이미지 업로드는 금지되며 오직
+          텍스트로만 기입 가능합니다.
+        </p>
+
+        <div class="form-group">
+          <label>자료 제목</label>
+          <input
+            type="text"
+            id="storeTitle"
+            class="form-control"
+            placeholder="예: [김을지 교수] 운열지학학 기말고사 정답 복원"
+          />
+        </div>
+        <div class="form-group">
+          <label>대상 교수 선택</label>
+          <select id="storeProfSelect" class="form-control"></select>
+        </div>
+        <div class="form-group" style="margin-bottom: 20px">
+          <label>족보 텍스트 원문 내용</label>
+          <textarea
+            id="storeContent"
+            class="form-control"
+            rows="6"
+            placeholder="기출 문항 및 정답 가이드라인을 텍스트로 상세히 작성하세요."
+          ></textarea>
+        </div>
+        <button
+          class="action-btn btn-blue"
+          style="width: 100%; padding: 12px; justify-content: center"
+          onclick="submitStoreItemAction()"
+        >
+          족보 자료 등록하기
         </button>
       </div>
     </div>

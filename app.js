@@ -5,13 +5,24 @@ let state = {
   isLoggedIn: false,
   user: null,
   currentMenu: 'professor',
-  activeDetailTab: 'diagram',
+  activeDetailTab: 'tag',
   currentProfId: null,
   searchKeyword: '',
   selectedDept: '전체',
+  selectedGrade: '전체', // 학년 필터 상태 추가
+  selectedSearchTag: '', // 메인 화면 태그 필터 상태 추가
   purchasedItemIds: [],
-  authTabMode: 'login', // 'login' 또는 'register' 폼 전환용 상태 변수
+  authTabMode: 'login',
 };
+
+// 사전 정의된 핵심 고정 태그 목록
+const PREDEFINED_TAGS = [
+  '족보그대로',
+  '출결빡빡',
+  '과제많음',
+  '시험어려움',
+  '학점짜다',
+];
 
 // ==========================================================================
 // 💾 2. 모크 데이터베이스 코어
@@ -22,6 +33,7 @@ const mockProfessors = [
     name: '김을지 교수님',
     college: '보건과학대학',
     department: '물리의학학과',
+    grade: '2학년', // 개설 학년 정보 매핑
     subjects: '운열지학학, 재활운동학',
     rating: 4.6,
     reviewCount: 125,
@@ -32,14 +44,22 @@ const mockProfessors = [
       feedbackSpeed: 3.3,
       classAttitude: 4.0,
     },
-    tags: ['설명 친절', '과제 적당', '시험 난이도 중'],
+    tags: [
+      { name: '족보그대로', count: 42 },
+      { name: '출결빡빡', count: 18 },
+      { name: '과제많음', count: 29 },
+      { name: '시험어려움', count: 31 },
+      { name: '학점짜다', count: 12 },
+    ],
     reviews: [
       {
+        id: 1,
         author: '보건과학대학 재학생',
         rating: 5,
-        date: '2026.07.11',
+        date: '2026.07.11 12:40',
         term: '2026-1학기',
         text: '매 수업 핵심 지표 위주로 쉽게 풀어서 강의해주시며, 질문 피드백 대응이 대단히 명확하십니다.',
+        reported: false,
       },
     ],
   },
@@ -48,6 +68,7 @@ const mockProfessors = [
     name: '이첨단 교수님',
     college: '첨단융합대학',
     department: '첨단학부',
+    grade: '3학년',
     subjects: '인공지능 개론, 데이터분석 실습',
     rating: 4.1,
     reviewCount: 38,
@@ -58,14 +79,22 @@ const mockProfessors = [
       feedbackSpeed: 3.8,
       classAttitude: 4.2,
     },
-    tags: ['과제 많음', '실무 중심', '피드백 빠름'],
+    tags: [
+      { name: '족보그대로', count: 5 },
+      { name: '출결빡빡', count: 22 },
+      { name: '과제많음', count: 45 },
+      { name: '시험어려움', count: 39 },
+      { name: '학점짜다', count: 25 },
+    ],
     reviews: [
       {
+        id: 2,
         author: '첨단학부 3학년',
         rating: 4,
-        date: '2026.06.20',
+        date: '2026.06.20 18:15',
         term: '2026-1학기',
         text: '과제 설계 장벽은 높지만 핵심 인공지능 엔지니어링 실무 역량을 확실히 기를 수 있습니다.',
+        reported: false,
       },
     ],
   },
@@ -76,7 +105,7 @@ const mockStoreItems = [
     id: 501,
     title: '[김을지 교수] 운열지학학 2025년도 1학기 기말고사 정답 복원 교안집',
     profName: '김을지 교수님',
-    cost: 150,
+    cost: 10,
     downloads: 84,
     content:
       '운열지학학 기말고사 기출 서술형 3문항 100% 정밀 복원 및 채점 기준 요약본 파일 본문입니다.',
@@ -85,7 +114,7 @@ const mockStoreItems = [
     id: 502,
     title: '[이첨단 교수] 인공지능 개론 중간고사 족보 가이드라인 및 소스코드',
     profName: '이첨단 교수님',
-    cost: 200,
+    cost: 10,
     downloads: 132,
     content:
       '인공지능 개론 중간 코딩 테스트 대비 머신러닝 선형회귀 모델 구현 문제 족보 파일 본문입니다.',
@@ -93,7 +122,7 @@ const mockStoreItems = [
 ];
 
 // ==========================================================================
-// 🔄 3. 라우팅 허브
+// 🔄 3. 라우팅 및 다중 필터 허브
 // ==========================================================================
 function switchPage(menuName) {
   state.currentMenu = menuName;
@@ -108,23 +137,26 @@ function switchPage(menuName) {
   const searchBlock = document.getElementById('searchSectionBlock');
   const container = document.getElementById('mainContentContainer');
   const pageHeading = document.getElementById('pageMainHeading');
-  const filters = document.getElementById('filterOptionsContainer');
 
   if (menuName === 'professor') {
     searchBlock.style.display = 'block';
     pageHeading.innerText = '전공 교수 체크';
-    filters.style.display = 'flex';
     container.innerHTML = `<div id="professorListWrapper"></div>`;
+    renderMainSearchTagBar();
     renderProfessorList();
   } else if (menuName === 'store') {
     searchBlock.style.display = 'block';
     pageHeading.innerText = '비밀 족보 스토어';
-    filters.style.display = 'none';
-    container.innerHTML = `<div id="storeListWrapper"></div>`;
+    container.innerHTML = `
+            <div style="display:flex; justify-content:flex-end; margin-bottom:16px;">
+                <button class="action-btn btn-blue" onclick="openStoreModal()"><span class="material-symbols-outlined" style="font-size:16px;">edit_document</span>족보 자료 등록</button>
+            </div>
+            <div id="storeListWrapper"></div>
+        `;
     renderStoreList();
   } else if (menuName === 'mypage') {
     if (!state.isLoggedIn) {
-      switchPage('auth'); // 비로그인이면 전용 회원가입/로그인 뷰로 리다이렉트
+      switchPage('auth');
       return;
     }
     searchBlock.style.display = 'none';
@@ -135,26 +167,63 @@ function switchPage(menuName) {
   }
 }
 
+// 메인 태그 필터 바 렌더링 함수
+function renderMainSearchTagBar() {
+  const container = document.getElementById('mainSearchTagBar');
+  if (!container) return;
+
+  container.innerHTML = `
+        <span style="font-size:12px; font-weight:600; color:var(--text-sub); display:flex; align-items:center; margin-right:6px;">태그 필터:</span>
+        <div class="search-tag-chip ${state.selectedSearchTag === '' ? 'selected' : ''}" onclick="handleSearchTagSelect('')">전체</div>
+        ${PREDEFINED_TAGS.map(
+          (tag) => `
+            <div class="search-tag-chip ${state.selectedSearchTag === tag ? 'selected' : ''}" onclick="handleSearchTagSelect('${tag}')">#${tag}</div>
+        `,
+        ).join('')}
+    `;
+}
+
+function handleSearchTagSelect(tag) {
+  state.selectedSearchTag = tag;
+  renderMainSearchTagBar();
+  renderProfessorList();
+}
+
 function renderProfessorList() {
   const wrapper = document.getElementById('professorListWrapper');
   if (!wrapper) return;
   wrapper.innerHTML = '';
 
+  // 학과, 학년, 입력 검색어, 상단 필터 태그 조건 결합 필터링
   const filtered = mockProfessors.filter((p) => {
     const matchesSearch =
       p.name.includes(state.searchKeyword) ||
       p.subjects.includes(state.searchKeyword);
     const matchesDept =
       state.selectedDept === '전체' || p.department === state.selectedDept;
-    return matchesSearch && matchesDept;
+    const matchesGrade =
+      state.selectedGrade === '전체' || p.grade === state.selectedGrade;
+
+    let matchesTag = true;
+    if (state.selectedSearchTag !== '') {
+      const target = p.tags.find((t) => t.name === state.selectedSearchTag);
+      matchesTag = target && target.count > 0; // 해당 태그 투표 수가 있는 경우만 노출
+    }
+
+    return matchesSearch && matchesDept && matchesGrade && matchesTag;
   });
+
+  if (filtered.length === 0) {
+    wrapper.innerHTML = `<p style="text-align:center; color:var(--text-muted); font-size:13px; padding:40px 0;">조건에 부합하는 교수님 정보가 존재하지 않습니다.</p>`;
+    return;
+  }
 
   filtered.forEach((p) => {
     const card = document.createElement('div');
     card.className = 'item-list-card';
     card.innerHTML = `
             <div>
-                <h3 style="font-size:16px; margin-bottom:4px; font-weight:700;">${p.name}</h3>
+                <h3 style="font-size:16px; margin-bottom:4px; font-weight:700;">${p.name} <span style="font-size:12px; font-weight:400; color:var(--text-muted); margin-left:6px;">[${p.grade}]</span></h3>
                 <p style="font-size:12px; color:var(--text-sub);">${p.college} • <span style="color:var(--primary-color); font-weight:600;">${p.department}</span> | 과목: ${p.subjects}</p>
             </div>
             <button class="action-btn btn-blue" onclick="viewProfessorDetail(${p.id})">교수 정보 열람</button>
@@ -179,8 +248,8 @@ function renderStoreList() {
             </div>
             ${
               isPurchased
-                ? `<button class="action-btn" onclick="switchPage('mypage')" style="color:var(--primary-color); border-color:var(--primary-color);">보관함 보기</button>`
-                : `<button class="action-btn btn-blue" onclick="purchaseStoreItem(${item.id}, ${item.cost})"><span class="material-symbols-outlined" style="font-size:16px;">download</span> ${item.cost}P</button>`
+                ? `<button class="action-btn" onclick="switchPage('mypage')" style="color:var(--primary-color); border-color:var(--primary-color);">보관함 열람</button>`
+                : `<button class="action-btn btn-blue" onclick="purchaseStoreItem(${item.id}, ${item.cost})"><span class="material-symbols-outlined" style="font-size:16px;">lock</span> 열람 (${item.cost}P 차감)</button>`
             }
         `;
     wrapper.appendChild(card);
@@ -198,14 +267,16 @@ function viewProfessorDetail(profId) {
   document.getElementById('searchSectionBlock').style.display = 'none';
   const container = document.getElementById('mainContentContainer');
 
+  const topTag = [...p.tags].sort((a, b) => b.count - a.count)[0];
+
   container.innerHTML = `
-        <div class="breadcrumb">교수 검색 &nbsp;/&nbsp; ${p.college} &nbsp;/&nbsp; <span style="color:var(--text-main); font-weight:600;">${p.department}</span></div>
+        <div class="breadcrumb">교수 검색 &nbsp;/&nbsp; ${p.college} &nbsp;/&nbsp; <span style="color:var(--text-main); font-weight:600;">${p.department} (${p.grade})</span></div>
         <div class="header-action-row">
             <div class="title-area">
                 <span class="material-symbols-outlined back-btn" onclick="switchPage('professor')">arrow_back</span>
                 <div>
                     <h2 style="font-size: 20px; font-weight: 700;">${p.name}</h2>
-                    <p style="font-size: 12px; color: var(--text-muted); margin-top:2px;">${p.college} ${p.department} • 담당과목: ${p.subjects}</p>
+                    <p style="font-size: 12px; color: var(--text-muted); margin-top:2px;">${p.college} ${p.department} [${p.grade}] • 담당과목: ${p.subjects}</p>
                 </div>
             </div>
             <button class="action-btn btn-blue" onclick="openReviewModal()">리뷰 쓰기</button>
@@ -218,15 +289,15 @@ function viewProfessorDetail(profId) {
                 <p style="font-size:11px; color:var(--text-muted); margin-top:4px;">${p.reviewCount}개 리뷰 기준</p>
             </div>
             <div class="summary-card">
-                <div class="summary-card-title">주요 태그 TOP 3</div>
+                <div class="summary-card-title">주요 대표 특성 키워드</div>
                 <div style="margin-top:14px;">
-                    ${p.tags.map((tag, i) => `<span class="tag-pill"><span class="badge-idx">${i + 1}</span>${tag}</span>`).join('')}
+                    <span class="tag-pill clicked" style="margin-bottom:0;"><span class="badge-idx">TOP</span>#${topTag.name} (${topTag.count}표)</span>
                 </div>
             </div>
         </div>
 
         <div class="tabs-header">
-            <div class="tab-item ${state.activeDetailTab === 'tag' ? 'active' : ''}" onclick="switchDetailTab('tag')">태그 요약</div>
+            <div class="tab-item ${state.activeDetailTab === 'tag' ? 'active' : ''}" onclick="switchDetailTab('tag')">태그 피드백</div>
             <div class="tab-item ${state.activeDetailTab === 'diagram' ? 'active' : ''}" onclick="switchDetailTab('diagram')">다이어그램 통계</div>
             <div class="tab-item ${state.activeDetailTab === 'review' ? 'active' : ''}" onclick="switchDetailTab('review')">선배들 리뷰 (${p.reviews.length})</div>
         </div>
@@ -257,39 +328,32 @@ function switchDetailTab(tabName) {
 }
 
 // ==========================================================================
-// 📄 5. [완벽 복구] 태그 요약 탭 렌더링을 포함한 콘텐츠 분기 엔진
+// 📄 5. 비즈니스 경제 룰 인프라 (포인트 증감 명세화 및 태그 선택 기능)
 // ==========================================================================
 function renderTabPanelContent(prof) {
   const block = document.getElementById('tabContentBlock');
   if (!block) return;
 
   if (state.activeDetailTab === 'tag') {
-    // 📸 스크린샷 1의 구조를 그대로 복구한 태그 요약 인터페이스 설계
     block.innerHTML = `
             <div style="background:#fff; border:1px solid var(--border-color); border-radius:12px; padding:24px;">
-                <h4 style="font-size:14px; font-weight:700; margin-bottom:16px; color:var(--text-main);">선배들이 선택한 주요 강의 키워드</h4>
-                <div style="display:flex; flex-direction:column; gap:12px;">
-                    <div style="padding:16px; background:var(--bg-main); border-radius:8px; border:1px solid var(--border-color); display:flex; justify-content:space-between; align-items:center;">
-                        <div>
-                            <strong style="color:var(--primary-color); font-size:14px;">#설명_친절</strong>
-                            <p style="font-size:12px; color:var(--text-sub); margin-top:2px;">교수님의 설명 방식에 대한 만족도가 대단히 높은 편입니다.</p>
-                        </div>
-                        <span style="font-weight:700; color:var(--text-main); font-size:13px;">94%의 학우 선택</span>
-                    </div>
-                    <div style="padding:16px; background:var(--bg-main); border-radius:8px; border:1px solid var(--border-color); display:flex; justify-content:space-between; align-items:center;">
-                        <div>
-                            <strong style="color:var(--primary-color); font-size:14px;">#과제_적당</strong>
-                            <p style="font-size:12px; color:var(--text-sub); margin-top:2px;">학기 중 부여되는 과제 밸런스가 매우 합리적입니다.</p>
-                        </div>
-                        <span style="font-weight:700; color:var(--text-main); font-size:13px;">81%의 학우 선택</span>
-                    </div>
-                    <div style="padding:16px; background:var(--bg-main); border-radius:8px; border:1px solid var(--border-color); display:flex; justify-content:space-between; align-items:center;">
-                        <div>
-                            <strong style="color:var(--primary-color); font-size:14px;">#시험_난이도_중</strong>
-                            <p style="font-size:12px; color:var(--text-sub); margin-top:2px;">수업 내용과 교안을 충실하게 따라가면 무난히 풀 수 있는 수준입니다.</p>
-                        </div>
-                        <span style="font-weight:700; color:var(--text-main); font-size:13px;">76%의 학우 선택</span>
-                    </div>
+                <h4 style="font-size:14px; font-weight:700; margin-bottom:6px; color:var(--text-main);">클릭형 강의 특성 투표</h4>
+                <p style="font-size:12px; color:var(--text-muted); margin-bottom:18px;">공감하는 태그를 클릭하면 수치가 1 상승하며 <span style="color:var(--primary-color); font-weight:600;">활동 포인트 2점</span>이 적립됩니다. (중복 불가)</p>
+                <div style="display:flex; flex-wrap:wrap;" id="tagPillContainer">
+                    ${prof.tags
+                      .map((tag) => {
+                        const uniqueKey = `${prof.id}_${tag.name}`;
+                        const isAlreadyClicked =
+                          state.isLoggedIn &&
+                          state.user.clickedTags &&
+                          state.user.clickedTags.includes(uniqueKey);
+                        return `
+                            <div class="tag-pill ${isAlreadyClicked ? 'clicked' : ''}" onclick="handleTagClickAction('${tag.name}')">
+                                <span class="badge-idx">${tag.count}</span> #${tag.name}
+                            </div>
+                        `;
+                      })
+                      .join('')}
                 </div>
             </div>
         `;
@@ -316,10 +380,13 @@ function renderTabPanelContent(prof) {
                 ${prof.reviews
                   .map(
                     (r) => `
-                    <div class="review-row-item">
+                    <div class="review-row-item" style="${r.reported ? 'opacity:0.5;' : ''}">
                         <div style="display:flex; justify-content:space-between; margin-bottom:6px; font-size:12px;">
                             <span style="font-weight:700;">${r.author} <span style="color:var(--primary-color); margin-left:4px;">★ ${r.rating}</span></span>
-                            <span style="color:var(--text-muted);">${r.date}</span>
+                            <div style="display:flex; align-items:center; gap:12px; color:var(--text-muted);">
+                                <span>${r.date}</span>
+                                ${r.reported ? `<span style="color:var(--danger-color); font-weight:600;">[신고 접수]</span>` : `<span style="cursor:pointer;" onclick="reportReviewAction(${r.id})">신고</span>`}
+                            </div>
                         </div>
                         <p style="font-size:13.5px; color:var(--text-sub); line-height:1.5;">${r.text}</p>
                     </div>
@@ -331,17 +398,290 @@ function renderTabPanelContent(prof) {
   }
 }
 
+// 태그 선택/클릭 액션 (+2포인트 충전 구조)
+function handleTagClickAction(tagName) {
+  if (!state.isLoggedIn) return;
+  const p = mockProfessors.find((item) => item.id === state.currentProfId);
+  if (!p) return;
+
+  if (!state.user.clickedTags) state.user.clickedTags = [];
+  const uniqueKey = `${p.id}_${tagName}`;
+
+  if (state.user.clickedTags.includes(uniqueKey)) {
+    alert('이미 이 교수님의 해당 태그에 피드백을 반영하셨습니다.');
+    return;
+  }
+
+  const targetTag = p.tags.find((t) => t.name === tagName);
+  if (targetTag) {
+    targetTag.count += 1;
+    state.user.points += 2; // 규칙 반영: 태그 선택시 +2포인트 적립
+    state.user.clickedTags.push(uniqueKey);
+    updateSidebarProfileUI();
+    alert(`🎉 #${tagName} 반영 완료! +2포인트가 적립되었습니다.`);
+    viewProfessorDetail(p.id);
+  }
+}
+
+function purchaseStoreItem(itemId, cost) {
+  if (!state.isLoggedIn) {
+    alert('학적 로그인 연동 후 다운로드가 가능합니다.');
+    switchPage('auth');
+    return;
+  }
+  if (!state.user.isCertified) {
+    alert('마이페이지에서 수강확인서 등본 인증 완료 후 열람할 수 있습니다.');
+    switchPage('mypage');
+    return;
+  }
+  if (state.user.points < cost) {
+    alert(
+      `포인트가 부족합니다. (현재 보유: ${state.user.points}P / 필요: ${cost}P)\n태그 피드백 투표(+2P) 및 후기 작성(+3P)을 병행하여 5포인트를 빠르게 모아보세요!`,
+    );
+    return;
+  }
+
+  if (
+    confirm(`해당 비밀 족보를 오픈하기 위해 ${cost}포인트를 차감 전송할까요?`)
+  ) {
+    state.user.points -= cost; // 규칙 반영: 족보 열람 시 -10포인트 차감
+    state.purchasedItemIds.push(itemId);
+    updateSidebarProfileUI();
+    alert(
+      '🎉 열람 권한이 승인되었습니다. 마이페이지 보관함에서 원문을 체크하세요!',
+    );
+    renderStoreList();
+  }
+}
+
+function openReviewModal() {
+  if (!state.isLoggedIn) {
+    alert('로그인 후 작성이 허용됩니다.');
+    switchPage('auth');
+    return;
+  }
+  if (!state.user.isCertified) {
+    alert('수강 확인서가 등록된 상태여야 리뷰 작성이 진행됩니다.');
+    switchPage('mypage');
+    return;
+  }
+  openModal('reviewModal');
+}
+
+function submitReviewAction() {
+  const p = mockProfessors.find((item) => item.id === state.currentProfId);
+  const textVal = document.getElementById('revText').value;
+  if (textVal.length < 10) {
+    alert('성의 있는 리뷰를 위해 최소 10자 이상 적어주세요.');
+    return;
+  }
+
+  p.reviews.unshift({
+    id: Date.now(),
+    author: `${state.user.dept} ${state.user.grade || '학우'}`,
+    rating: parseFloat(document.getElementById('revRating').value),
+    date: '2026.07.11 13:05',
+    term: document.getElementById('revTerm').value,
+    text: textVal,
+    reported: false,
+  });
+
+  state.user.points += 3; // 규칙 반영: 후기 작성 시 +3포인트 적립
+  updateSidebarProfileUI();
+  closeModal('reviewModal');
+  alert(
+    '📢 소중한 강의 후기가 반영되었습니다! +3포인트가 적립되었습니다.\n(태그 투표+2P와 후기 작성+3P를 통합하여 총 5포인트 완벽 획득 가능)',
+  );
+  viewProfessorDetail(p.id);
+}
+
 // ==========================================================================
-// 🎨 6. 5각 캔버스 및 가로 그래프 처리 자동화 엔진
+// 🔐 6. 회원가입 및 학과/학년 선택 폼 처리 구조
+// ==========================================================================
+function renderAuthPageLayout(container) {
+  container.innerHTML = `
+        <div class="auth-center-box">
+            <div class="auth-tab-row">
+                <div class="auth-tab-btn ${state.authTabMode === 'login' ? 'active' : ''}" onclick="toggleAuthMode('login')">포털 로그인</div>
+                <div class="auth-tab-btn ${state.authTabMode === 'register' ? 'active' : ''}" onclick="toggleAuthMode('register')">학적 회원가입</div>
+            </div>
+            <div id="authFormFieldsBlock"></div>
+        </div>
+    `;
+
+  const formBlock = document.getElementById('authFormFieldsBlock');
+  if (state.authTabMode === 'login') {
+    formBlock.innerHTML = `
+            <div class="form-group">
+                <label>을지대학교 종합포털 이메일</label>
+                <input type="text" id="authEmail" class="form-control" placeholder="student@eulji.ac.kr">
+            </div>
+            <div class="form-group" style="margin-bottom:24px;">
+                <label>비밀번호</label>
+                <input type="password" id="authPassword" class="form-control" placeholder="••••••">
+            </div>
+            <button class="action-btn btn-blue" style="width:100%; padding:12px; justify-content:center; font-weight:600;" onclick="executeLoginAction()">학적 통합 연동 로그인</button>
+        `;
+  } else {
+    // 학과선택 및 학년 선택 옵션 컴포넌트 추가
+    formBlock.innerHTML = `
+            <div class="form-group">
+                <label>성명</label>
+                <input type="text" id="regName" class="form-control" placeholder="홍길동">
+            </div>
+            <div class="form-group">
+                <label>학과 선택</label>
+                <select id="regDept" class="form-control">
+                    <option value="물리의학학과">물리의학학과</option>
+                    <option value="첨단학부">첨단학부</option>
+                    <option value="간호학과">간호학과</option>
+                    <option value="임상병리학과">임상병리학과</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>학년 선택</label>
+                <select id="regGrade" class="form-control">
+                    <option value="1학년">1학년</option>
+                    <option value="2학년">2학년</option>
+                    <option value="3학년">3학년</option>
+                    <option value="4학년">4학년</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>을지대학교 공식 이메일</label>
+                <input type="text" id="regEmail" class="form-control" placeholder="student@eulji.ac.kr">
+            </div>
+            <div class="form-group" style="margin-bottom:24px;">
+                <label>비밀번호</label>
+                <input type="password" id="regPassword" class="form-control" placeholder="••••••">
+            </div>
+            <button class="action-btn btn-blue" style="width:100%; padding:12px; justify-content:center; font-weight:600;" onclick="executeRegisterAction()">회원가입 완료 (+20점 기본 지급)</button>
+        `;
+  }
+}
+
+function toggleAuthMode(mode) {
+  state.authTabMode = mode;
+  renderAuthPageLayout(document.getElementById('mainContentContainer'));
+}
+
+function executeLoginAction() {
+  state.isLoggedIn = true;
+  state.user = {
+    name: '김을지',
+    dept: '물리의학학과',
+    grade: '3학년',
+    points: 20,
+    isCertified: true,
+    certifiedFile: '확인서.pdf',
+    clickedTags: [],
+  };
+  updateSidebarProfileUI();
+  alert('🎉 포털 통합 연동 성공! 기본 20포인트가 로드되었습니다.');
+  switchPage('professor');
+}
+
+function executeRegisterAction() {
+  const name = document.getElementById('regName').value || '신규회원';
+  const dept = document.getElementById('regDept').value;
+  const grade = document.getElementById('regGrade').value;
+
+  state.isLoggedIn = true;
+  state.user = {
+    name: name,
+    dept: dept,
+    grade: grade,
+    points: 20,
+    isCertified: false,
+    certifiedFile: null,
+    clickedTags: [],
+  }; // 규칙 반영: 가입 시 20포인트 지급
+  updateSidebarProfileUI();
+  alert(
+    `🎉 강의라운지 가입을 축하합니다!\n기본 가입 축하금 [20포인트]가 정상 지급되었습니다.`,
+  );
+  switchPage('professor');
+}
+
+// ==========================================================================
+// 👤 7. 마이페이지 워크스페이스 및 내부 보관함 구조
+// ==========================================================================
+function renderMyPageWorkspace(container) {
+  const purchasedObjects = mockStoreItems.filter((item) =>
+    state.purchasedItemIds.includes(item.id),
+  );
+
+  container.innerHTML = `
+        <h1 style="font-size:20px; font-weight:700; margin-bottom:24px;">내 활동 및 강의 관리 허브</h1>
+        <div style="display:grid; grid-template-columns: 1fr 1.2fr; gap:24px; align-items: start;">
+            <div style="display:flex; flex-direction:column; gap:20px;">
+                <div style="background:#fff; border:1px solid var(--border-color); border-radius:16px; padding:28px;">
+                    <p style="font-size:12px; color:var(--text-muted); font-weight:500;">포털 소속 학적 정보</p>
+                    <h2 style="font-size:18px; font-weight:700; margin-top:4px; margin-bottom:16px;">
+                        ${state.user.name} <span style="font-size:13px; font-weight:400; color:var(--text-sub);">${state.user.dept} (${state.user.grade})</span>
+                    </h2>
+                    <div style="padding:16px; background:var(--bg-main); border-radius:10px; display:flex; justify-content:space-between; align-items:center; border:1px solid var(--border-color);">
+                        <span style="font-size:13px; color:var(--text-sub);">현재 가용 보충 포인트</span>
+                        <strong style="color:var(--primary-color); font-size:18px; font-weight:800;">${state.user.points} P</strong>
+                    </div>
+                </div>
+
+                <div style="background:#fff; border:1px solid var(--border-color); border-radius:16px; padding:28px;">
+                    <h3 style="font-size:14px; font-weight:700; margin-bottom:6px; display:flex; align-items:center; gap:6px;">
+                        <span class="material-symbols-outlined" style="color:var(--primary-color); font-size:20px;">verified_user</span>수강 확인서 서류 연동 인증
+                    </h3>
+                    <p style="font-size:12px; color:var(--text-sub); margin-bottom:16px; line-height:1.4;">
+                        정확한 정보 교류 신뢰성을 기하기 위해 포털 수강확인서 캡처 서류 등록이 최초 1회 필수 요구됩니다.
+                    </p>
+                    <div class="file-upload-dropzone" onclick="triggerHiddenFileInput()">
+                        <span class="material-symbols-outlined" style="font-size:32px; color:var(--text-muted);">cloud_upload</span>
+                        <p style="font-size:12px; margin-top:6px; color:var(--text-sub);">수강 확인서 등록 (클릭)</p>
+                        <input type="file" id="hiddenAuthFileInput" style="display:none;" onchange="handleAuthFileSelection(this)">
+                    </div>
+                    <div id="authFileUploadBadgeArea">
+                        ${state.user.isCertified ? `<div class="file-uploaded-badge">✓ 증명서류 승인 완료 (제한 해제)</div>` : ''}
+                    </div>
+                </div>
+            </div>
+
+            <div style="background:#fff; border:1px solid var(--border-color); border-radius:16px; padding:28px;">
+                <h3 style="font-size:14px; font-weight:700; margin-bottom:4px; display:flex; align-items:center; gap:6px;">
+                    <span class="material-symbols-outlined" style="color:orange; font-size:20px;">folder_open</span>기출 족보 보관함 (-10P 차감 내역)
+                </h3>
+                <p style="font-size:11px; color:var(--text-muted); margin-bottom:20px;">무임승차 방지를 통과한 정회원 열람 기출 텍스트입니다.</p>
+                <div id="mypagePurchasedContainer">
+                    ${
+                      purchasedObjects.length === 0
+                        ? `
+                        <p style="color:var(--text-muted); text-align:center; font-size:12px; padding:30px;">결제 오픈된 비밀 족보 이력이 존재하지 않습니다.</p>
+                    `
+                        : purchasedObjects
+                            .map(
+                              (item) => `
+                        <div style="border:1px solid var(--border-color); border-radius:10px; padding:16px; margin-bottom:12px; background:var(--bg-main);">
+                            <h4 style="font-size:13px; font-weight:700; margin-bottom:8px;">${item.title}</h4>
+                            <div style="background:#fff; border:1px solid var(--border-color); padding:12px; border-radius:6px; font-size:12px; color:var(--text-sub); white-space:pre-wrap;">${item.content}</div>
+                        </div>
+                    `,
+                            )
+                            .join('')
+                    }
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+// ==========================================================================
+// 🎨 8. 시각화 및 부가 유틸리티 처리기
 // ==========================================================================
 function drawRadarChart5Axis(metrics) {
   const canvas = document.getElementById('radarChartCanvas');
   if (!canvas) return;
   const ctx = canvas.getContext('2d');
-
-  const centerX = canvas.width / 2;
-  const centerY = canvas.height / 2;
-  const maxRadius = 75;
+  const centerX = canvas.width / 2,
+    centerY = canvas.height / 2,
+    maxRadius = 75;
   const labels = [
     '난이도',
     '과제량',
@@ -359,7 +699,6 @@ function drawRadarChart5Axis(metrics) {
 
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.strokeStyle = '#E2E8F0';
-
   for (let i = 1; i <= 5; i++) {
     const r = maxRadius * (i / 5);
     ctx.beginPath();
@@ -379,7 +718,6 @@ function drawRadarChart5Axis(metrics) {
     ctx.closePath();
     ctx.stroke();
   }
-
   ctx.font = '11px Noto Sans KR';
   ctx.fillStyle = '#5F6470';
   ctx.textAlign = 'center';
@@ -392,7 +730,6 @@ function drawRadarChart5Axis(metrics) {
       centerY + (maxRadius + 10) * Math.sin(angle),
     );
   }
-
   ctx.strokeStyle = 'rgba(77, 105, 250, 0.85)';
   ctx.fillStyle = 'rgba(77, 105, 250, 0.2)';
   ctx.lineWidth = 2;
@@ -413,7 +750,6 @@ function drawRadarChart5Axis(metrics) {
 function animateBarCharts(metrics) {
   const container = document.getElementById('barChartContainer');
   if (!container) return;
-
   const arr = [
     { label: '난이도 기준점', val: metrics.difficulty },
     { label: '과제 부담감', val: metrics.task },
@@ -421,137 +757,78 @@ function animateBarCharts(metrics) {
     { label: '실시간 피드백 속도', val: metrics.feedbackSpeed },
     { label: '교수님 수업 태도', val: metrics.classAttitude },
   ];
-
   container.innerHTML = arr
     .map(
       (item, i) => `
         <div class="bar-chart-row">
-            <div class="bar-chart-info">
-                <span style="color:var(--text-sub); font-size:11.5px;">${item.label}</span>
-                <span style="font-weight:700;">${item.val.toFixed(1)} / 5.0</span>
-            </div>
-            <div class="bar-chart-bg">
-                <div class="bar-chart-fill" id="coreBarFill_${i}"></div>
-            </div>
+            <div class="bar-chart-info"><span>${item.label}</span><strong>${item.val.toFixed(1)} / 5.0</strong></div>
+            <div class="bar-chart-bg"><div class="bar-chart-fill" id="coreBarFill_${i}"></div></div>
         </div>
     `,
     )
     .join('');
-
   setTimeout(() => {
     arr.forEach((item, i) => {
-      const b = document.getElementById(`coreBarFill_${i}`);
-      if (b) b.style.width = `${(item.val / 5) * 100}%`;
+      document.getElementById(`coreBarFill_${i}`).style.width =
+        `${(item.val / 5) * 100}%`;
     });
   }, 50);
 }
 
-// ==========================================================================
-// 🔐 7. [완벽 복구] 모달이 아닌 메인 전용 로그인/회원가입 인라인 페이지 뷰어
-// ==========================================================================
-function renderAuthPageLayout(container) {
-  // 스크린샷 2의 정밀한 이메일 / 패스워드 폼 인터페이스 연동 복구
-  container.innerHTML = `
-        <div class="auth-center-box">
-            <div class="auth-tab-row">
-                <div class="auth-tab-btn ${state.authTabMode === 'login' ? 'active' : ''}" onclick="toggleAuthMode('login')">포털 로그인</div>
-                <div class="auth-tab-btn ${state.authTabMode === 'register' ? 'active' : ''}" onclick="toggleAuthMode('register')">학적 회원가입</div>
-            </div>
-            
-            <div id="authFormFieldsBlock"></div>
-        </div>
-    `;
-
-  const formBlock = document.getElementById('authFormFieldsBlock');
-  if (state.authTabMode === 'login') {
-    formBlock.innerHTML = `
-            <div class="form-group">
-                <label>을지대학교 종합포털 이메일</label>
-                <input type="text" id="authEmail" class="form-control" placeholder="student@eulji.ac.kr">
-            </div>
-            <div class="form-group" style="margin-bottom:24px;">
-                <label>비밀번호</label>
-                <input type="password" id="authPassword" class="form-control" placeholder="••••••">
-            </div>
-            <button class="action-btn btn-blue" style="width:100%; padding:12px; justify-content:center; font-weight:600;" onclick="executeLoginAction()">학적 통합 연동 로그인</button>
-        `;
-  } else {
-    formBlock.innerHTML = `
-            <div class="form-group">
-                <label>성명</label>
-                <input type="text" id="regName" class="form-control" placeholder="홍길동">
-            </div>
-            <div class="form-group">
-                <label>소속 학과 선택</label>
-                <select id="regDept" class="form-control">
-                    <option value="물리의학학과">물리의학학과</option>
-                    <option value="첨단학부">첨단학부</option>
-                </select>
-            </div>
-            <div class="form-group">
-                <label>을지대학교 공식 이메일 학적 계정</label>
-                <input type="text" id="regEmail" class="form-control" placeholder="student@eulji.ac.kr">
-            </div>
-            <div class="form-group" style="margin-bottom:24px;">
-                <label>신규 비밀번호 설정</label>
-                <input type="password" id="regPassword" class="form-control" placeholder="••••••">
-            </div>
-            <button class="action-btn btn-blue" style="width:100%; padding:12px; justify-content:center; font-weight:600;" onclick="executeRegisterAction()">포털 연동 회원가입 완료</button>
-        `;
+function reportReviewAction(reviewId) {
+  const p = mockProfessors.find((item) => item.id === state.currentProfId);
+  if (!p) return;
+  const r = p.reviews.find((rev) => rev.id === reviewId);
+  if (r) {
+    r.reported = true;
+    alert('신고가 정상 접수되었습니다.');
+    viewProfessorDetail(p.id);
   }
 }
-
-function toggleAuthMode(mode) {
-  state.authTabMode = mode;
-  const container = document.getElementById('mainContentContainer');
-  renderAuthPageLayout(container);
+function triggerHiddenFileInput() {
+  document.getElementById('hiddenAuthFileInput').click();
 }
-
-function executeLoginAction() {
-  const email = document.getElementById('authEmail').value;
-  if (!email.includes('@eulji.ac.kr') && email !== 'test') {
-    alert('을지대학교 계정(@eulji.ac.kr)으로만 로그인이 가능합니다.');
+function handleAuthFileSelection(input) {
+  if (!input.files.length) return;
+  state.user.isCertified = true;
+  alert('수강인증 확인 서류가 정상 접수 및 승인처리 되었습니다!');
+  switchPage('mypage');
+}
+function openStoreModal() {
+  if (!state.isLoggedIn) {
+    alert('로그인 후 이용 가능합니다.');
+    switchPage('auth');
     return;
   }
-
-  state.isLoggedIn = true;
-  state.user = {
-    name: '김을지',
-    dept: '물리의학학과',
-    points: 450,
-    isCertified: false,
-    certifiedFile: null,
-  };
-  updateSidebarProfileUI();
-  alert('🎉 을지대학교 학적 동기화 완료! 환영합니다.');
-  switchPage('professor');
+  document.getElementById('storeProfSelect').innerHTML = mockProfessors
+    .map((p) => `<option value="${p.id}">${p.name} (${p.department})</option>`)
+    .join('');
+  openModal('storeModal');
 }
-
-function executeRegisterAction() {
-  const name = document.getElementById('regName').value;
-  const dept = document.getElementById('regDept').value;
-  if (!name) {
-    alert('이름을 기입해 주세요.');
+function submitStoreItemAction() {
+  const title = document.getElementById('storeTitle').value;
+  const content = document.getElementById('storeContent').value;
+  if (!title || !content) {
+    alert('내용을 채워주세요.');
     return;
   }
-
-  state.isLoggedIn = true;
-  state.user = {
-    name: name,
-    dept: dept,
-    points: 200,
-    isCertified: false,
-    certifiedFile: null,
-  }; // 가입 보너스 200P
-  updateSidebarProfileUI();
-  alert(
-    '🎉 회원가입 및 종합 포털 연동인증에 성공했습니다. 가입 기념 200P가 적립되었습니다.',
-  );
-  switchPage('professor');
+  mockStoreItems.unshift({
+    id: Date.now(),
+    title: title,
+    profName: mockProfessors.find(
+      (p) =>
+        p.id === parseInt(document.getElementById('storeProfSelect').value),
+    ).name,
+    cost: 10,
+    downloads: 0,
+    content: content,
+  });
+  closeModal('storeModal');
+  alert('텍스트 족보가 정상 공유 등록되었습니다.');
+  renderStoreList();
 }
-
 function executeLogout() {
-  if (confirm('안전하게 로그아웃 하시겠습니까?')) {
+  if (confirm('로그아웃 하시겠습니까?')) {
     state.isLoggedIn = false;
     state.user = null;
     state.purchasedItemIds = [];
@@ -559,147 +836,6 @@ function executeLogout() {
     switchPage('professor');
   }
 }
-
-// ==========================================================================
-// 🛍️ 8. 트랜잭션 및 보관함 로직
-// ==========================================================================
-function purchaseStoreItem(itemId, cost) {
-  if (!state.isLoggedIn) {
-    alert('학적 연동 후 족보 다운로드가 허용됩니다.');
-    switchPage('auth');
-    return;
-  }
-  if (state.user.points < cost) {
-    alert('포인트 잔액이 부족합니다. 리뷰를 작성하고 포인트를 받으세요.');
-    return;
-  }
-
-  if (confirm(`해당 자료 구매를 위해 ${cost} 포인트를 차감할까요?`)) {
-    state.user.points -= cost;
-    state.purchasedItemIds.push(itemId);
-    updateSidebarProfileUI();
-    alert(
-      "🎉 다운로드가 완료되었습니다! 마이페이지 '기출 족보 열람 보관함'에서 즉시 확인하세요.",
-    );
-    renderStoreList();
-  }
-}
-
-function openReviewModal() {
-  if (!state.isLoggedIn) {
-    alert('포털 로그인 학우님만 리뷰 작성이 가능합니다.');
-    switchPage('auth');
-    return;
-  }
-  openModal('reviewModal');
-}
-
-function submitReviewAction() {
-  const p = mockProfessors.find((item) => item.id === state.currentProfId);
-  const textVal = document.getElementById('revText').value;
-  if (textVal.length < 10) {
-    alert('후기를 10자 이상 적어주세요.');
-    return;
-  }
-
-  p.reviews.unshift({
-    author: `${state.user.dept} 학우`,
-    rating: parseFloat(document.getElementById('revRating').value),
-    date: '2026.07.11',
-    term: document.getElementById('revTerm').value,
-    text: textVal,
-  });
-
-  state.user.points += 50;
-  updateSidebarProfileUI();
-  closeModal('reviewModal');
-  alert('📢 리뷰 등록 성공! 50P가 충전되었습니다.');
-  viewProfessorDetail(p.id);
-}
-
-// ==========================================================================
-// 👤 9. 마이페이지 워크스페이스
-// ==========================================================================
-function renderMyPageWorkspace(container) {
-  const purchasedObjects = mockStoreItems.filter((item) =>
-    state.purchasedItemIds.includes(item.id),
-  );
-
-  container.innerHTML = `
-        <h1 style="font-size:20px; font-weight:700; margin-bottom:24px;">내 활동 및 강의 관리 허브</h1>
-        <div style="display:grid; grid-template-columns: 1fr 1.2fr; gap:24px; align-items: start;">
-            <div style="display:flex; flex-direction:column; gap:20px;">
-                <div style="background:#fff; border:1px solid var(--border-color); border-radius:16px; padding:28px;">
-                    <p style="font-size:12px; color:var(--text-muted); font-weight:500;">포털 학적 정보</p>
-                    <h2 style="font-size:20px; font-weight:700; margin-top:4px; margin-bottom:16px;">
-                        ${state.user.name} <span style="font-size:14px; font-weight:400; color:var(--text-sub);">${state.user.dept}</span>
-                    </h2>
-                    <div style="padding:16px; background:var(--bg-main); border-radius:10px; display:flex; justify-content:space-between; align-items:center; border:1px solid var(--border-color);">
-                        <span style="font-size:13px; color:var(--text-sub);">현재 보유한 다운로드 포인트</span>
-                        <strong style="color:var(--primary-color); font-size:18px; font-weight:800;">${state.user.points} P</strong>
-                    </div>
-                </div>
-
-                <div style="background:#fff; border:1px solid var(--border-color); border-radius:16px; padding:28px;">
-                    <h3 style="font-size:15px; font-weight:700; margin-bottom:6px; display:flex; align-items:center; gap:6px;">
-                        <span class="material-symbols-outlined" style="color:var(--primary-color); font-size:20px;">verified_user</span>정회원 강의 수강 서류 증명인증
-                    </h3>
-                    <p style="font-size:12px; color:var(--text-sub); margin-bottom:16px; line-height:1.4;">
-                        포털 수강확인서 서류를 등록하시면 보너스 300P 지급 및 기밀 커뮤니티 등급이 활성화됩니다.
-                    </p>
-                    <div class="file-upload-dropzone" onclick="triggerHiddenFileInput()">
-                        <span class="material-symbols-outlined" style="font-size:32px; color:var(--text-muted);">cloud_upload</span>
-                        <p style="font-size:12.5px; margin-top:6px; color:var(--text-sub);">수강 서류 업로드 (클릭)</p>
-                        <input type="file" id="hiddenAuthFileInput" style="display:none;" onchange="handleAuthFileSelection(this)">
-                    </div>
-                    <div id="authFileUploadBadgeArea">
-                        ${state.user.isCertified ? `<div class="file-uploaded-badge">✓ 등록 완료: ${state.user.certifiedFile} (심사 중)</div>` : ''}
-                    </div>
-                </div>
-            </div>
-
-            <div style="background:#fff; border:1px solid var(--border-color); border-radius:16px; padding:28px;">
-                <h3 style="font-size:15px; font-weight:700; margin-bottom:4px; display:flex; align-items:center; gap:6px;">
-                    <span class="material-symbols-outlined" style="color:orange; font-size:20px;">folder_open</span>내가 구매한 기출 족보 열람 보관함
-                </h3>
-                <p style="font-size:12px; color:var(--text-muted); margin-bottom:20px;">결제가 완료되어 영구 열람이 가능한 원문 리스트입니다.</p>
-                <div id="mypagePurchasedContainer">
-                    ${
-                      purchasedObjects.length === 0
-                        ? `
-                        <p style="color:var(--text-muted); text-align:center; font-size:12px; padding:30px;">구매한 족보 내역이 없습니다.</p>
-                    `
-                        : purchasedObjects
-                            .map(
-                              (item) => `
-                        <div style="border:1px solid var(--border-color); border-radius:10px; padding:16px; margin-bottom:12px; background:var(--bg-main);">
-                            <h4 style="font-size:13px; font-weight:700; margin-bottom:8px;">${item.title}</h4>
-                            <div style="background:#fff; border:1px solid var(--border-color); padding:12px; border-radius:6px; font-size:12px; color:var(--text-sub); white-space:pre-wrap;">${item.content}</div>
-                        </div>
-                    `,
-                            )
-                            .join('')
-                    }
-                </div>
-            </div>
-        </div>
-    `;
-}
-
-function triggerHiddenFileInput() {
-  document.getElementById('hiddenAuthFileInput').click();
-}
-function handleAuthFileSelection(input) {
-  if (!input.files.length) return;
-  state.user.isCertified = true;
-  state.user.certifiedFile = input.files[0].name;
-  alert('인증 서류가 임시 업로드 되었습니다. 운영진 검수 후 처리됩니다.');
-  switchPage('mypage');
-}
-
-// ==========================================================================
-// 🛠️ 10. 초기화 인프라
-// ==========================================================================
 function openModal(id) {
   document.getElementById(id).style.display = 'flex';
 }
@@ -708,19 +844,16 @@ function closeModal(id) {
 }
 function handleLiveSearch() {
   state.searchKeyword = document.getElementById('globalSearchInput').value;
-  if (state.currentMenu === 'professor') renderProfessorList();
-  else if (state.currentMenu === 'store') renderStoreList();
+  renderProfessorList();
 }
 function handleFilterChange() {
   state.selectedDept = document.getElementById('deptFilter').value;
+  state.selectedGrade = document.getElementById('gradeFilter').value;
   renderProfessorList();
 }
-
 function updateSidebarProfileUI() {
   const card = document.getElementById('sidebarProfile');
   const logoutBtn = document.getElementById('sidebarLogoutBtn');
-  if (!card) return;
-
   if (state.isLoggedIn && state.user) {
     card.innerHTML = `<div class="profile-avatar">${state.user.name[0]}</div><div class="profile-info"><h4>${state.user.name}</h4><p>${state.user.dept} • <b style="color:var(--primary-color);">${state.user.points}P</b></p></div>`;
     if (logoutBtn) logoutBtn.style.display = 'flex';
@@ -729,7 +862,6 @@ function updateSidebarProfileUI() {
     if (logoutBtn) logoutBtn.style.display = 'none';
   }
 }
-
 window.onload = function () {
   updateSidebarProfileUI();
   switchPage('professor');
