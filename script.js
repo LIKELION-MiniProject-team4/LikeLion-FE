@@ -9,6 +9,15 @@ let currentProfId = 1;
 let currentMode = 'search';
 let selectedRating = 5;
 let purchasedJokbo = [];
+// 태그 기여를 이미 완료한 교수 id 목록 (교수당 1회만 +2P 지급 - 무한 파밍 방지)
+let taggedProfessorIds = [];
+// 포인트 획득/차감 전체 내역 로그 (최신이 배열 앞쪽) - '작업 내역' 탭 및 '포인트 획득 내역' 카드의 공통 소스
+let pointHistoryLog = [];
+
+function addPointHistory(label, delta) {
+  pointHistoryLog.unshift({ label, delta });
+  renderPointHistory();
+}
 
 const professorsData = [
   {
@@ -21,6 +30,13 @@ const professorsData = [
     grade: '1',
     tags: ['시험 핵심위주', '학점 깔끔', '출결 엄격'],
     subjects: ['온열치방학', '재활운동학'],
+    // 다이어그램 탭 4대 핵심 지표 (1~5 척도) - 실제로는 리뷰 누적 평균으로 계산되어야 함
+    diagramMetrics: {
+      examDifficulty: 4.2,
+      gradeDifficulty: 3.8,
+      attendanceDifficulty: 4.5,
+      workload: 3.1,
+    },
     allTags: [
       { name: '시험난이도 높음', count: 68, max: 80 },
       { name: '과제 많음', count: 54, max: 80 },
@@ -48,6 +64,12 @@ const professorsData = [
     grade: '2',
     tags: ['과제 없음', '출결 프리'],
     subjects: ['기초임상학', '실습'],
+    diagramMetrics: {
+      examDifficulty: 2.5,
+      gradeDifficulty: 4.6,
+      attendanceDifficulty: 1.8,
+      workload: 1.5,
+    },
     allTags: [{ name: '학점 혜자', count: 30, max: 50 }],
     reviews: [],
   },
@@ -73,7 +95,6 @@ const jokboStoreData = [
 
 // 포인트 차감 및 연동 동적 업데이트 제어판 (가짜 125P 요소를 완벽 제거)
 function updateAuthUI() {
-  const noticeMsg = document.getElementById('tag-notice-msg');
   const writeLockOverlay = document.getElementById('review-write-lock-overlay');
   const reviewLockMsg = document.getElementById('review-lock-msg');
 
@@ -97,9 +118,7 @@ function updateAuthUI() {
     document.getElementById('mypage-user-subdesc').innerText =
       `물리치료학과 · 학번: ${userStudentId}`;
 
-    if (noticeMsg)
-      noticeMsg.innerText =
-        '교수님에 맞는 태그를 선택하여 등록해 보세요. (+2P)';
+    updateTagButtonState();
 
     if (isCertified) {
       writeLockOverlay.classList.add('hidden');
@@ -108,6 +127,7 @@ function updateAuthUI() {
       reviewLockMsg.innerHTML =
         '🔒 <strong>마이페이지</strong>에서 [수강확인서 파일]을 인증 완료해야 후기 작성이 가능합니다.';
     }
+    renderPointHistory();
     renderPurchasedJokboList();
   } else {
     document.getElementById('profile-logged-out').classList.remove('hidden');
@@ -174,15 +194,10 @@ document.body.addEventListener('click', (e) => {
 
       userPoints -= item.price; // 무조건 10포인트 차감
       purchasedJokbo.push(item);
+      addPointHistory(`${item.subject} 구매 차감`, -item.price);
       alert(
         `🎁 [${item.subject}]를 성공적으로 구매했습니다. 10포인트가 차감되었습니다.`,
       );
-
-      // 실시간 마이페이지 리스트 및 포인트 내역 추가
-      const historyList = document.querySelector('.points-history-list');
-      if (historyList) {
-        historyList.innerHTML += `<li><span>${item.subject} 구매 차감</span><style='color:#d9383a;'>-10P</style></li>`;
-      }
 
       updateAuthUI();
       renderJokboStore();
@@ -190,7 +205,104 @@ document.body.addEventListener('click', (e) => {
   }
 });
 
-// 마이페이지 내부 내가 소유한 족보 리스트 동적 빌드
+// 포인트 획득 내역 렌더링 - 마이페이지 '포인트' 카드(최근 5개)와 '작업 내역' 탭(전체)에 공통 사용
+function renderPointHistory() {
+  const renderItems = (list) =>
+    list.length
+      ? list
+          .map(
+            (h) => `
+      <li>
+        <span>${h.label}</span>
+        <strong class="${h.delta >= 0 ? 'plus-p' : 'minus-p'}">${h.delta >= 0 ? '+' : ''}${h.delta}P</strong>
+      </li>`,
+          )
+          .join('')
+      : `<li class="empty-msg">아직 활동 내역이 없습니다.</li>`;
+
+  const miniEl = document.getElementById('mini-history-list');
+  if (miniEl) miniEl.innerHTML = renderItems(pointHistoryLog.slice(0, 5));
+
+  const fullEl = document.getElementById('full-history-list');
+  if (fullEl) fullEl.innerHTML = renderItems(pointHistoryLog);
+}
+
+// 마이페이지 좌측 소메뉴(mp-nav-item) 탭 전환
+function switchMypageTab(tab) {
+  document.querySelectorAll('.mp-nav-item[data-tab]').forEach((btn) => {
+    btn.classList.toggle('active', btn.getAttribute('data-tab') === tab);
+  });
+  document.querySelectorAll('.mp-tab-panel').forEach((panel) => {
+    panel.classList.toggle('hidden', panel.id !== `mp-panel-${tab}`);
+  });
+
+  if (tab === 'point' || tab === 'history') renderPointHistory();
+  if (tab === 'jokbo') renderPurchasedJokboList();
+  if (tab === 'bookmark') renderBookmarkListInMypage();
+  if (tab === 'edit') fillEditProfileForm();
+}
+
+// 마이페이지 '찜 목록' 탭 - 저장한 교수 리스트
+function renderBookmarkListInMypage() {
+  const listEl = document.getElementById('mypage-bookmark-list');
+  if (!listEl) return;
+
+  const bookmarked = professorsData.filter((p) => bookmarkedIds.includes(p.id));
+  if (bookmarked.length === 0) {
+    listEl.innerHTML = `<li class="empty-msg">아직 찜한 교수님이 없습니다. 교수 검색에서 찜해 보세요!</li>`;
+    return;
+  }
+  listEl.innerHTML = bookmarked
+    .map(
+      (p) => `
+    <li>
+      <span class="material-icons-outlined" style="color:var(--primary-color); font-size:16px;">bookmark</span>
+      <strong>${p.name}</strong> - ${p.college} ${p.dept} (★ ${p.rating.toFixed(1)})
+      <button class="detail-view-btn" style="padding:4px 8px; font-size:11px; margin-left:auto;" data-id="${p.id}" id="mp-bookmark-goto-${p.id}">교수 보러가기</button>
+    </li>
+  `,
+    )
+    .join('');
+
+  listEl.querySelectorAll('.detail-view-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      renderDetailPage(btn.getAttribute('data-id'));
+      switchView(document.getElementById('view-detail'), null);
+    });
+  });
+}
+
+// 마이페이지 '내 정보 수정' 탭 - 입력창에 현재 값 채우기
+function fillEditProfileForm() {
+  const nameInput = document.getElementById('edit-user-name');
+  const idInput = document.getElementById('edit-user-student-id');
+  if (nameInput) nameInput.value = userName;
+  if (idInput) idInput.value = userStudentId;
+}
+
+document.getElementById('btn-save-profile').addEventListener('click', () => {
+  const newName = document.getElementById('edit-user-name').value.trim();
+  const newStudentId = document
+    .getElementById('edit-user-student-id')
+    .value.trim();
+
+  if (!newName || !newStudentId) {
+    alert('이름과 학번을 모두 입력해 주세요.');
+    return;
+  }
+
+  userName = newName;
+  userStudentId = newStudentId;
+  updateAuthUI();
+  alert('✅ 내 정보가 수정되었습니다.');
+});
+
+document.querySelector('.mypage-aside-nav').addEventListener('click', (e) => {
+  const btn = e.target.closest('.mp-nav-item[data-tab]');
+  if (btn) switchMypageTab(btn.getAttribute('data-tab'));
+});
+
+
 function renderPurchasedJokboList() {
   const listEl = document.getElementById('purchased-jokbo-list');
   if (!listEl) return;
@@ -284,6 +396,7 @@ document.getElementById('btn-submit-review').addEventListener('click', () => {
 
   prof.reviewCount += 1;
   userPoints += 3;
+  addPointHistory('리뷰 작성 보상', 3);
   textInput.value = '';
   alert('📝 클린 익명 리뷰가 게시되었습니다. 3포인트가 적립되었습니다.');
   updateAuthUI();
@@ -400,6 +513,8 @@ document
     userStudentId = studentId;
     userPoints = 20; // 가입 기본금 20포인트 지급 고정
     isLoggedIn = true;
+    pointHistoryLog = [];
+    addPointHistory('회원가입 기본 지급', 20);
     document.getElementById('auth-modal').classList.add('hidden');
     alert(
       `🎁 회원가입 축하드립니다, ${userName}님! 기본 지급 20포인트가 충전되었습니다.`,
@@ -407,7 +522,7 @@ document
     updateAuthUI();
   });
 
-// 태그 보상 처리 연동 (+2P)
+// 태그 보상 처리 연동 (+2P) - 교수당 1회만 지급되도록 중복 방지
 document
   .getElementById('btn-tag-input-trigger')
   .addEventListener('click', () => {
@@ -416,10 +531,36 @@ document
       openAuthModal('login');
       return;
     }
+    if (taggedProfessorIds.includes(currentProfId)) {
+      alert('이미 이 교수님에게 태그 기여를 완료하셨습니다. (교수당 1회)');
+      return;
+    }
+    taggedProfessorIds.push(currentProfId);
     userPoints += 2;
+    addPointHistory('태그 기여', 2);
     alert('🏷️ 태그 기여 완료! 2포인트가 실시간 적립되었습니다.');
     updateAuthUI();
+    updateTagButtonState();
   });
+
+// 태그 버튼 상태 갱신 - 이미 기여한 교수면 버튼을 비활성화 표시
+function updateTagButtonState() {
+  const btn = document.getElementById('btn-tag-input-trigger');
+  const notice = document.getElementById('tag-notice-msg');
+  if (!btn) return;
+
+  const alreadyTagged = taggedProfessorIds.includes(currentProfId);
+  btn.disabled = alreadyTagged;
+  btn.style.opacity = alreadyTagged ? '0.5' : '1';
+  btn.style.cursor = alreadyTagged ? 'default' : 'pointer';
+
+  if (!isLoggedIn) return; // 로그인 안내 문구는 updateAuthUI가 관리
+  if (notice) {
+    notice.innerText = alreadyTagged
+      ? '이미 이 교수님에게 태그 기여를 완료했어요. (교수당 1회)'
+      : '교수님에 맞는 태그를 선택하여 등록해 보세요. (+2P)';
+  }
+}
 
 function openAuthModal(mode = 'login') {
   const authModal = document.getElementById('auth-modal');
@@ -431,6 +572,40 @@ function openAuthModal(mode = 'login') {
     document.getElementById('modal-sub-login').classList.add('hidden');
     document.getElementById('modal-sub-register').classList.remove('hidden');
   }
+}
+
+// 다이어그램 탭 렌더링 - 막대그래프 4개 + 레이더(clip-path 사각형)를 교수 데이터로 채운다
+function renderDiagram(prof) {
+  const m = prof.diagramMetrics;
+  if (!m) return;
+
+  const setBar = (fillId, numId, value) => {
+    document.getElementById(fillId).style.width = `${(value / 5) * 100}%`;
+    document.getElementById(numId).innerText = value.toFixed(1);
+  };
+  setBar('bar-fill-exam', 'num-exam', m.examDifficulty);
+  setBar('bar-fill-grade', 'num-grade', m.gradeDifficulty);
+  setBar('bar-fill-attendance', 'num-attendance', m.attendanceDifficulty);
+  setBar('bar-fill-workload', 'num-workload', m.workload);
+
+  const total =
+    (m.examDifficulty + m.gradeDifficulty + m.attendanceDifficulty + m.workload) / 4;
+  document.getElementById('diagram-total-num').innerText =
+    `${total.toFixed(1)} / 5.0`;
+
+  // 4축 레이더: N=시험난이도, E=과제량, S=출결 난이도, W=학점난이도 (축 라벨과 동일하게 매칭)
+  const nRatio = m.examDifficulty / 5;
+  const eRatio = m.workload / 5;
+  const sRatio = m.attendanceDifficulty / 5;
+  const wRatio = m.gradeDifficulty / 5;
+
+  const nY = 50 - nRatio * 50;
+  const eX = 50 + eRatio * 50;
+  const sY = 50 + sRatio * 50;
+  const wX = 50 - wRatio * 50;
+
+  document.getElementById('radar-polygon').style.clipPath =
+    `polygon(50% ${nY}%, ${eX}% 50%, 50% ${sY}%, ${wX}% 50%)`;
 }
 
 function renderDetailPage(profId) {
@@ -471,6 +646,8 @@ function renderDetailPage(profId) {
     .join('');
 
   sortAndRenderReviews();
+  renderDiagram(prof);
+  updateTagButtonState();
 }
 
 function switchView(targetSection, menuBtn) {
@@ -537,6 +714,7 @@ document.getElementById('menu-mypage').addEventListener('click', () => {
     document.getElementById('menu-mypage'),
   );
   updateAuthUI();
+  switchMypageTab('point');
 });
 
 document
@@ -605,7 +783,9 @@ document.querySelectorAll('.tab-menu .tab-btn').forEach((btn) => {
 document.body.addEventListener('click', (e) => {
   if (
     e.target.id === 'btn-top-login-trigger' ||
-    e.target.id === 'btn-sidebar-login'
+    e.target.id === 'btn-sidebar-login' ||
+    e.target.id === 'btn-diagram-login-trigger' ||
+    e.target.id === 'btn-mypage-login-trigger'
   )
     openAuthModal('login');
   if (e.target.id === 'btn-logout') {
@@ -613,6 +793,8 @@ document.body.addEventListener('click', (e) => {
     isCertified = false;
     userPoints = 20;
     purchasedJokbo = [];
+    taggedProfessorIds = [];
+    pointHistoryLog = [];
     alert('로그아웃 되었습니다.');
     updateAuthUI();
     switchView(
@@ -636,6 +818,9 @@ document
 
 document.getElementById('btn-execute-login').addEventListener('click', () => {
   isLoggedIn = true;
+  if (pointHistoryLog.length === 0) {
+    addPointHistory('회원가입 기본 지급', 20);
+  }
   document.getElementById('auth-modal').classList.add('hidden');
   alert('🔑 정상적으로 연동 로그인되었습니다.');
   updateAuthUI();
@@ -649,6 +834,10 @@ document.getElementById('star-input-group').addEventListener('click', (e) => {
       else s.classList.remove('active');
     });
   }
+});
+
+document.getElementById('mp-history-more-link').addEventListener('click', () => {
+  switchMypageTab('history');
 });
 
 document.addEventListener('DOMContentLoaded', () => {

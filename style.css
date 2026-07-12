@@ -995,6 +995,14 @@ body {
 .points-history-list strong {
   color: #2b8a3e;
 }
+.points-history-list strong.minus-p {
+  color: #d9383a;
+}
+
+.mp-tab-panel {
+  display: block;
+}
+
 
 .my-upload-section,
 .my-history-box {
