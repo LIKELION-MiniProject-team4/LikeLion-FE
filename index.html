@@ -12,6 +12,7 @@
   </head>
   <body>
     <div class="app-container">
+      <!-- 좌측 데스크톱 고정 사이드바 -->
       <aside class="sidebar">
         <div class="sidebar-top">
           <div class="logo-area" id="logo-home-trigger" style="cursor: pointer">
@@ -43,6 +44,7 @@
           </nav>
         </div>
 
+        <!-- 하단 고정 프로필 카드 -->
         <div class="profile-card" id="sidebar-profile">
           <div id="profile-logged-out" class="profile-toggle-view">
             <button class="sidebar-login-btn" id="btn-sidebar-login">
@@ -65,7 +67,9 @@
         </div>
       </aside>
 
+      <!-- 메인 콘텐츠 영역 -->
       <main class="main-content">
+        <!-- [화면 1] 홈 화면 (교수 검색 목록) -->
         <section id="view-home" class="page-view">
           <div class="home-header">
             <div class="home-logo">
@@ -119,6 +123,7 @@
           <div class="professor-list" id="home-prof-list"></div>
         </section>
 
+        <!-- [화면 2] 교수 상세 화면 -->
         <section id="view-detail" class="page-view hidden">
           <div class="breadcrumb">
             교수 검색 / <span class="current-dept">학과</span>
@@ -162,6 +167,7 @@
             <button class="tab-btn" data-tab="tab-diagram">다이어그램</button>
           </div>
 
+          <!-- 탭 1: 태그 요약 -->
           <div id="tab-tags" class="tab-content active-content">
             <h3 class="content-title">태그 요약</h3>
             <div class="tag-scroll-box">
@@ -178,6 +184,7 @@
             </div>
           </div>
 
+          <!-- 탭 2: 리뷰 -->
           <div id="tab-reviews" class="tab-content">
             <div id="review-authenticated-content">
               <div
@@ -254,6 +261,7 @@
             </div>
           </div>
 
+          <!-- 탭 3: 다이어그램 (4대 핵심 지표로 수정 완료) -->
           <div id="tab-diagram" class="tab-content">
             <div class="auth-lock-overlay" id="diagram-lock-overlay">
               <p>🔒 다이어그램 데이터 시각화는 로그인이 필요합니다.</p>
@@ -263,12 +271,11 @@
               <div class="diagram-card chart-area">
                 <h3>교수 평가 다이어그램</h3>
                 <div class="radar-placeholder">
-                  <div class="radar-polygon"></div>
+                  <div class="radar-polygon-quad"></div>
                   <span class="axis-label n">시험난이도</span>
-                  <span class="axis-label ne">과제량</span>
-                  <span class="axis-label se">학점난이도</span>
-                  <span class="axis-label sw">출결난이도</span>
-                  <span class="axis-label nw">수업태도</span>
+                  <span class="axis-label e">과제량</span>
+                  <span class="axis-label s">출결 난이도</span>
+                  <span class="axis-label w">학점난이도</span>
                 </div>
               </div>
               <div class="diagram-card score-area">
@@ -277,35 +284,56 @@
                   <div class="score-bar-item">
                     <span>시험난이도</span>
                     <div class="bar-bg">
-                      <div class="bar-fill" style="width: 70%"></div>
+                      <div class="bar-fill" style="width: 84%"></div>
                     </div>
-                    <span class="num">3.5</span>
+                    <span class="num">4.2</span>
                   </div>
                   <div class="score-bar-item">
-                    <span>과제량</span>
+                    <span>학점난이도</span>
                     <div class="bar-bg">
                       <div class="bar-fill" style="width: 76%"></div>
                     </div>
                     <span class="num">3.8</span>
                   </div>
                   <div class="score-bar-item">
-                    <span>학점난이도</span>
+                    <span>출결 난이도</span>
                     <div class="bar-bg">
-                      <div class="bar-fill" style="width: 56%"></div>
+                      <div class="bar-fill" style="width: 90%"></div>
                     </div>
-                    <span class="num">2.8</span>
+                    <span class="num">4.5</span>
                   </div>
+                  <div class="score-bar-item">
+                    <span>과제량</span>
+                    <div class="bar-bg">
+                      <div class="bar-fill" style="width: 62%"></div>
+                    </div>
+                    <span class="num">3.1</span>
+                  </div>
+                </div>
+                <div class="diagram-total-row">
+                  종합 평균 <strong class="point-highlight">3.9 / 5.0</strong>
                 </div>
               </div>
             </div>
           </div>
         </section>
 
+        <!-- [화면 3] 족보 상점 화면 -->
         <section id="view-jokbo" class="page-view hidden">
           <div class="home-header">
             <div class="home-logo">
               <span class="material-icons-outlined">receipt_long</span>
-              <h2>시험 족보 상점</h2>
+              <h2>
+                시험 족보 상점
+                <span
+                  style="
+                    font-size: 12px;
+                    color: var(--text-muted);
+                    font-weight: normal;
+                  "
+                  >(모든 족보 균일가 10P)</span
+                >
+              </h2>
             </div>
             <button class="write-jokbo-trigger-btn" id="btn-open-jokbo-modal">
               <span class="material-icons-outlined">edit_note</span> 족보
@@ -315,6 +343,7 @@
           <div class="jokbo-grid" id="jokbo-list-container"></div>
         </section>
 
+        <!-- [화면 4] 마이페이지 화면 (125P 삭제 처리 완료) -->
         <section id="view-mypage" class="page-view hidden">
           <div class="home-header">
             <h2>내 마이페이지</h2>
@@ -325,69 +354,134 @@
           </div>
 
           <div id="mypage-content" class="mypage-wrapper hidden">
-            <div class="my-profile-section">
-              <div class="big-avatar" id="mypage-avatar">U</div>
-              <div class="my-meta">
-                <h3 id="mypage-user-display">을지유저 (학번 인증 대기)</h3>
-                <p>
-                  내 보유 포인트:
-                  <strong class="point-highlight" id="mypage-points">20</strong>
-                  포인트
-                </p>
-              </div>
-            </div>
-
-            <div class="my-upload-section">
-              <h3>📜 학생 인증 및 수강확인서 제출</h3>
-              <p class="upload-sub-text">
-                학교 포털 수강확인서 또는 시간표 파일을 등록하시면
-                <strong>리뷰 작성 권한</strong>이 즉시 활성화됩니다.
-              </p>
-              <div class="file-upload-box">
-                <input
-                  type="file"
-                  id="verification-file-input"
-                  style="display: none"
-                />
-                <button
-                  class="upload-mock-btn"
-                  onclick="
-                    document.getElementById('verification-file-input').click()
-                  "
-                >
-                  <span class="material-icons-outlined">cloud_upload</span> 파일
-                  선택하기
+            <div class="mypage-layout-grid">
+              <!-- 좌측 서브 메뉴 구조 -->
+              <div class="mypage-aside-nav">
+                <button class="mp-nav-item active">
+                  <span class="material-icons-outlined">payments</span> 포인트
                 </button>
-                <span
-                  id="file-name-display"
-                  style="
-                    margin-left: 12px;
-                    font-size: 12px;
-                    font-weight: 600;
-                    color: #d9383a;
-                  "
-                  >수강 확인서 미인증 (리뷰 작성 불가)</span
-                >
+                <button class="mp-nav-item">
+                  <span class="material-icons-outlined">history</span> 작업 내역
+                </button>
+                <button class="mp-nav-item">
+                  <span class="material-icons-outlined">folder_shared</span>
+                  내가 가진 족보
+                </button>
+                <button class="mp-nav-item">
+                  <span class="material-icons-outlined">favorite_border</span>
+                  찜 목록
+                </button>
+                <button class="mp-nav-item">
+                  <span class="material-icons-outlined">manage_accounts</span>
+                  내 정보 수정
+                </button>
               </div>
-            </div>
 
-            <div class="my-history-box">
-              <h3>📥 내가 구매한 내역 (내 족보 보관함)</h3>
-              <ul class="purchased-list" id="purchased-jokbo-list">
-                <li class="empty-msg">아직 구매한 족보가 없습니다.</li>
-              </ul>
+              <!-- 우측 메인 섹션 판넬 -->
+              <div class="mypage-main-panels">
+                <div class="my-profile-section-clean">
+                  <div class="big-avatar" id="mypage-avatar">U</div>
+                  <div class="my-meta">
+                    <h3 id="mypage-user-display">을지유저</h3>
+                    <p id="mypage-user-subdesc">물리치료학과 1학년</p>
+                  </div>
+                </div>
+
+                <div class="mypage-two-column">
+                  <!-- 내 포인트 (요청대로 가짜 125P 요소를 제거하고 실제 동적 포인트 반영) -->
+                  <div class="mp-card">
+                    <div class="card-label">내 포인트</div>
+                    <div class="dynamic-point-row">
+                      <span
+                        class="material-icons-outlined"
+                        style="color: var(--star-color); font-size: 28px"
+                        >monetization_on</span
+                      >
+                      <span class="big-point-num"
+                        ><span id="mypage-points-dynamic">20</span> P</span
+                      >
+                    </div>
+                    <p class="point-subtext">
+                      누적 활동으로 모은 실시간 보유 포인트입니다.
+                    </p>
+                  </div>
+
+                  <!-- 포인트 획득 내역 기입 -->
+                  <div class="mp-card">
+                    <div class="card-label-row">
+                      <span>포인트 획득 내역</span>
+                      <span class="more-txt">더보기 ></span>
+                    </div>
+                    <ul class="points-history-list">
+                      <li>
+                        <span>회원가입 기본 지급</span
+                        ><strong class="plus-p">+20P</strong>
+                      </li>
+                    </ul>
+                  </div>
+                </div>
+
+                <!-- 학생 인증 및 수강확인서 제출 -->
+                <div class="my-upload-section">
+                  <h3>📜 학생 인증 및 수강확인서 제출</h3>
+                  <p class="upload-sub-text">
+                    학교 포털 수강확인서 또는 시간표 파일을 등록하시면
+                    <strong>리뷰 작성 권한</strong>이 즉시 활성화됩니다.
+                  </p>
+                  <div class="file-upload-box">
+                    <input
+                      type="file"
+                      id="verification-file-input"
+                      style="display: none"
+                    />
+                    <button
+                      class="upload-mock-btn"
+                      onclick="
+                        document
+                          .getElementById('verification-file-input')
+                          .click()
+                      "
+                    >
+                      <span class="material-icons-outlined">cloud_upload</span>
+                      파일 선택하기
+                    </button>
+                    <span
+                      id="file-name-display"
+                      style="
+                        margin-left: 12px;
+                        font-size: 12px;
+                        font-weight: 600;
+                        color: #d9383a;
+                      "
+                      >수강 확인서 미인증 (리뷰 작성 불가)</span
+                    >
+                  </div>
+                </div>
+
+                <!-- 내가 가진 족보 섹션 -->
+                <div class="my-history-box">
+                  <h3>📥 내가 가진 족보 (보관함)</h3>
+                  <ul class="purchased-list" id="purchased-jokbo-list">
+                    <li class="empty-msg">
+                      아직 구매하거나 등록한 족보가 없습니다.
+                    </li>
+                  </ul>
+                </div>
+              </div>
             </div>
           </div>
         </section>
       </main>
     </div>
 
+    <!-- 모달: 로그인/회원가입 -->
     <div class="modal-dim hidden" id="auth-modal">
       <div class="modal-card">
         <button class="modal-close-btn" id="btn-close-auth-modal">
           <span class="material-icons-outlined">close</span>
         </button>
 
+        <!-- 로그인 탭 -->
         <div id="modal-sub-login">
           <h2 class="auth-title">로그인</h2>
           <div class="input-field">
@@ -410,6 +504,7 @@
           </div>
         </div>
 
+        <!-- 회원가입 탭 (기본 지급 20P 반영) -->
         <div id="modal-sub-register" class="hidden">
           <h2 class="auth-title">회원가입</h2>
           <div class="input-field">
@@ -442,31 +537,34 @@
       </div>
     </div>
 
+    <!-- 모달: 족보 등록 -->
     <div class="modal-dim hidden" id="jokbo-write-modal">
       <div class="modal-card">
         <button class="modal-close-btn" id="btn-close-jokbo-modal">
           <span class="material-icons-outlined">close</span>
         </button>
-        <h2 class="auth-title">새로운 시험 족보 등록</h2>
+        <h2 class="auth-title">새로운 시험 족보 기여</h2>
         <div class="input-field">
           <label>담당 교수명</label>
           <input type="text" id="jk-prof" placeholder="예: 김을지 교수님" />
         </div>
         <div class="input-field">
           <label>과목명</label>
-          <input type="text" id="jk-subject" placeholder="예: 온열치방학" />
+          <input type="text" id="jk-subject" placeholder="예: 운동처방학" />
         </div>
         <div class="input-field">
           <label>시험 분류 유형</label>
-          <input
-            type="text"
-            id="jk-type"
-            placeholder="예: 2026년 1학기 중간고사 기출"
-          />
+          <input type="text" id="jk-type" placeholder="예: 중간고사 기출문제" />
         </div>
         <div class="input-field">
-          <label>설정 판매 가격 (포인트)</label>
-          <input type="number" id="jk-price" value="10" />
+          <label>판매 가격 (10P 고정)</label>
+          <input
+            type="number"
+            id="jk-price"
+            value="10"
+            disabled
+            style="background-color: #f1f3f5; color: #868e96"
+          />
         </div>
         <button class="auth-submit-btn" id="btn-submit-new-jokbo">
           상점에 족보 게시하기

@@ -1,8 +1,9 @@
 let isLoggedIn = false;
 let isCertified = false;
-let userPoints = 0;
+// 초기 기본 지급 포인트를 20포인트로 엄격히 고정
+let userPoints = 20;
 let userName = '을지유저';
-let userStudentId = '';
+let userStudentId = '20261234';
 let bookmarkedIds = [1];
 let currentProfId = 1;
 let currentMode = 'search';
@@ -18,12 +19,12 @@ const professorsData = [
     rating: 4.6,
     reviewCount: 128,
     grade: '1',
-    tags: ['설명 친절', '과제 적당', '시험 난이도 중'],
+    tags: ['시험 핵심위주', '학점 깔끔', '출결 엄격'],
     subjects: ['온열치방학', '재활운동학'],
     allTags: [
-      { name: '설명 친절', count: 68, max: 80 },
-      { name: '과제 적당', count: 54, max: 80 },
-      { name: '시험 난이도 중', count: 49, max: 80 },
+      { name: '시험난이도 높음', count: 68, max: 80 },
+      { name: '과제 많음', count: 54, max: 80 },
+      { name: '출결 간소화', count: 22, max: 80 },
     ],
     reviews: [
       {
@@ -31,18 +32,9 @@ const professorsData = [
         writer: '익명 수강생',
         rating: 5,
         semester: '2026-1',
-        text: '교수님께서 출제 범위를 명확하게 잡아주셔서 대비하기 매우 수월했습니다.',
+        text: '교수님께서 출제 범위를 시험난이도에 맞게 정확히 짚어주셔서 공부 방향 잡기가 정말 최고였습니다.',
         date: '2026.06.14',
         timestamp: new Date('2026-06-14').getTime(),
-      },
-      {
-        id: 102,
-        writer: '익명 수강생',
-        rating: 4,
-        semester: '2025-2',
-        text: '과제 양은 적절하지만 실습 비중이 다소 있는 편입니다.',
-        date: '2025.12.20',
-        timestamp: new Date('2025-12-20').getTime(),
       },
     ],
   },
@@ -54,24 +46,32 @@ const professorsData = [
     rating: 4.2,
     reviewCount: 12,
     grade: '2',
-    tags: ['학점 후함', '널널한 과제'],
+    tags: ['과제 없음', '출결 프리'],
     subjects: ['기초임상학', '실습'],
-    allTags: [{ name: '학점 후함', count: 30, max: 50 }],
+    allTags: [{ name: '학점 혜자', count: 30, max: 50 }],
     reviews: [],
   },
 ];
 
+// 기출 족보 상점용 기본 데이터 제공 (가격을 무조건 10포인트로 고정 적용)
 const jokboStoreData = [
   {
     id: 501,
     profName: '김을지 교수님',
-    subject: '온열치방학',
-    type: '2025년 중간고사 기출',
-    price: 200,
+    subject: '운동처방학 기출족보',
+    type: 'PDF · 18p',
+    price: 10,
+  },
+  {
+    id: 502,
+    profName: '김을지 교수님',
+    subject: '재활운동학 기출족보',
+    type: 'PDF · 14p',
+    price: 10,
   },
 ];
 
-// 이중 권한 시스템 UI 제어 업데이트 (비로그인 시 열람은 허용하되 작성창만 Lock)
+// 포인트 차감 및 연동 동적 업데이트 제어판 (가짜 125P 요소를 완벽 제거)
 function updateAuthUI() {
   const noticeMsg = document.getElementById('tag-notice-msg');
   const writeLockOverlay = document.getElementById('review-write-lock-overlay');
@@ -87,19 +87,20 @@ function updateAuthUI() {
     document.getElementById('mypage-lock-overlay').classList.add('hidden');
     document.getElementById('mypage-content').classList.remove('hidden');
 
+    // 사이드바 및 마이페이지 내부의 모든 동적 포인트를 일원화하여 연동
     document.getElementById('user-points').innerText = userPoints;
-    document.getElementById('mypage-points').innerText = userPoints;
+    document.getElementById('mypage-points-dynamic').innerText = userPoints;
     document.getElementById('sidebar-user-name').innerText = userName;
     document.getElementById('sidebar-avatar-name').innerText =
       userName.substring(0, 2);
-    document.getElementById('mypage-user-display').innerText =
-      `${userName} (${userStudentId || '학번인증 전'})`;
+    document.getElementById('mypage-user-display').innerText = userName;
+    document.getElementById('mypage-user-subdesc').innerText =
+      `물리치료학과 · 학번: ${userStudentId}`;
 
     if (noticeMsg)
       noticeMsg.innerText =
         '교수님에 맞는 태그를 선택하여 등록해 보세요. (+2P)';
 
-    // 리뷰 글쓰기는 로그인 완료 + 학생 수강확인서 인증 스위치까지 켜져야 오버레이 해제
     if (isCertified) {
       writeLockOverlay.classList.add('hidden');
     } else {
@@ -121,23 +122,127 @@ function updateAuthUI() {
     document.getElementById('diagram-lock-overlay').classList.remove('hidden');
     document.getElementById('mypage-lock-overlay').classList.remove('hidden');
     document.getElementById('mypage-content').classList.add('hidden');
-    if (noticeMsg) noticeMsg.innerText = '태그 입력은 로그인이 필요합니다.';
   }
 }
 
-// 오버레이 클릭 시 유도 액션
-document
-  .getElementById('btn-review-action-trigger')
-  .addEventListener('click', () => {
-    if (!isLoggedIn) openAuthModal('login');
-    else
-      switchView(
-        document.getElementById('view-mypage'),
-        document.getElementById('menu-mypage'),
+// 족보 상점 구매 메커니즘 구축 (무조건 10포인트 소모 조건 반영)
+function renderJokboStore() {
+  const container = document.getElementById('jokbo-list-container');
+  if (!container) return;
+
+  container.innerHTML = jokboStoreData
+    .map((item) => {
+      const isOwned = purchasedJokbo.some((p) => p.id === item.id);
+      return `
+      <div class="jokbo-card">
+        <div>
+          <span class="jokbo-badge">${item.profName}</span>
+          <div class="jokbo-title-text">${item.subject}</div>
+          <div class="jokbo-meta">유형: ${item.type} · 가격: <strong style="color:var(--primary-color);">${item.price} P</strong></div>
+        </div>
+        <button class="jokbo-buy-btn ${isOwned ? 'owned' : ''}" data-id="${item.id}" ${isOwned ? 'disabled' : ''}>
+          ${isOwned ? '보유 완료' : '족보 구매'}
+        </button>
+      </div>
+    `;
+    })
+    .join('');
+}
+
+// 족보 상점 내 클릭 액션 핸들링
+document.body.addEventListener('click', (e) => {
+  if (
+    e.target.classList.contains('jokbo-buy-btn') &&
+    !e.target.classList.contains('owned')
+  ) {
+    if (!isLoggedIn) {
+      alert('족보 구매는 로그인이 필요합니다.');
+      openAuthModal('login');
+      return;
+    }
+
+    const jokboId = Number(e.target.getAttribute('data-id'));
+    const item = jokboStoreData.find((j) => j.id === jokboId);
+
+    if (item) {
+      if (userPoints < item.price) {
+        alert(
+          `포인트가 부족합니다! (현재 보유: ${userPoints}P / 필요: ${item.price}P)\n리뷰 작성이나 태그 기여로 포인트를 획득하세요.`,
+        );
+        return;
+      }
+
+      userPoints -= item.price; // 무조건 10포인트 차감
+      purchasedJokbo.push(item);
+      alert(
+        `🎁 [${item.subject}]를 성공적으로 구매했습니다. 10포인트가 차감되었습니다.`,
       );
+
+      // 실시간 마이페이지 리스트 및 포인트 내역 추가
+      const historyList = document.querySelector('.points-history-list');
+      if (historyList) {
+        historyList.innerHTML += `<li><span>${item.subject} 구매 차감</span><style='color:#d9383a;'>-10P</style></li>`;
+      }
+
+      updateAuthUI();
+      renderJokboStore();
+    }
+  }
+});
+
+// 마이페이지 내부 내가 소유한 족보 리스트 동적 빌드
+function renderPurchasedJokboList() {
+  const listEl = document.getElementById('purchased-jokbo-list');
+  if (!listEl) return;
+
+  if (purchasedJokbo.length === 0) {
+    listEl.innerHTML = `<li class="empty-msg">아직 구매하거나 등록한 족보가 없습니다. 상점에서 교환해 보세요!</li>`;
+    return;
+  }
+  listEl.innerHTML = purchasedJokbo
+    .map(
+      (item) => `
+    <li>
+      <span class="material-icons-outlined" style="color:var(--primary-color); font-size:16px;">description</span>
+      <strong>[보유] ${item.subject}</strong> - ${item.profName} (${item.type}) 
+      <button class="detail-view-btn" style="padding:4px 8px; font-size:11px; margin-left:auto;" onclick="alert('족보 파일 다운로드가 시작됩니다.')">족보 보러가기</button>
+    </li>
+  `,
+    )
+    .join('');
+}
+
+// 신규 족보 업로드 등록 기능 (기본 가격 무조건 10P 강제 고정)
+document
+  .getElementById('btn-submit-new-jokbo')
+  .addEventListener('click', () => {
+    const prof = document.getElementById('jk-prof').value.trim();
+    const sub = document.getElementById('jk-subject').value.trim();
+    const type = document.getElementById('jk-type').value.trim();
+
+    if (!prof || !sub || !type) {
+      alert('모든 항목을 올바르게 기입해 주세요.');
+      return;
+    }
+
+    const newId = Date.now();
+    const newJokbo = {
+      id: newId,
+      profName: prof,
+      subject: sub + ' 기출족보',
+      type: type,
+      price: 10,
+    };
+
+    jokboStoreData.unshift(newJokbo);
+    document.getElementById('jokbo-write-modal').classList.add('hidden');
+    alert(
+      '✨ 회원님의 기출 족보가 상점에 등록되었습니다! (모든 족보 가격은 10P로 균일 책정됩니다)',
+    );
+    renderJokboStore();
   });
 
-// 파일 수강확인서 인증 트리거
+// 수강확인서 파일 제출 가상 모션 연동
 document
   .getElementById('verification-file-input')
   .addEventListener('change', (e) => {
@@ -148,13 +253,13 @@ document
         `✅ 수강인증 완료 (${file.name})`;
       document.getElementById('file-name-display').style.color = '#2b8a3e';
       alert(
-        '🎉 학생 수강인증이 정상 확인되었습니다. 이제 클린리뷰 등록 권한이 활성화됩니다.',
+        '🎉 학생 수강인증이 확인되었습니다. 이제 클린리뷰 등록 권한이 활성화됩니다.',
       );
       updateAuthUI();
     }
   });
 
-// 리뷰 무조건 익명으로 데이터 주입 및 보상 처리 (+3P)
+// 리뷰 무조건 익명으로 데이터 주입 및 보상 처리
 document.getElementById('btn-submit-review').addEventListener('click', () => {
   const textInput = document.getElementById('input-review-text');
   const prof = professorsData.find((p) => p.id === currentProfId);
@@ -167,7 +272,6 @@ document.getElementById('btn-submit-review').addEventListener('click', () => {
   const now = new Date();
   const timeString = `${now.getFullYear()}.${String(now.getMonth() + 1).padStart(2, '0')}.${String(now.getDate()).padStart(2, '0')}`;
 
-  // 요구사항: 무조건 고정값 '익명 수강생' 주입
   prof.reviews.unshift({
     id: Date.now(),
     writer: '익명 수강생',
@@ -186,9 +290,10 @@ document.getElementById('btn-submit-review').addEventListener('click', () => {
   sortAndRenderReviews();
 });
 
-// 확장된 다중 필터 기능이 실시간 연동되는 검색 엔진 리스트 렌더러
+// 검색 및 다중 조건 필터 엔진
 function renderProfessorList() {
   const homeProfList = document.getElementById('home-prof-list');
+  if (!homeProfList) return;
   const query = document
     .getElementById('home-search-input')
     .value.toLowerCase();
@@ -202,7 +307,6 @@ function renderProfessorList() {
       ? professorsData.filter((p) => bookmarkedIds.includes(p.id))
       : professorsData;
 
-  // 조건 필터링 검사 체계
   data = data.filter((p) => {
     const matchQuery =
       p.name.toLowerCase().includes(query) ||
@@ -213,7 +317,7 @@ function renderProfessorList() {
   });
 
   if (data.length === 0) {
-    homeProfList.innerHTML = `<div style="text-align:center; padding:40px; color:var(--text-muted); font-size:13px;">필터 조건에 부합하는 교수님 정보가 존재하지 않습니다.</div>`;
+    homeProfList.innerHTML = `<div style="text-align:center; padding:40px; color:var(--text-muted); font-size:13px;">조건에 부합하는 교수님 정보가 존재하지 않습니다.</div>`;
     return;
   }
 
@@ -242,15 +346,22 @@ function renderProfessorList() {
   });
 }
 
-// 리뷰 피드 렌더러
 function sortAndRenderReviews() {
   const prof = professorsData.find((p) => p.id === currentProfId);
+  const container = document.getElementById('review-list-container');
+  if (!container || !prof) return;
+
   const sortValue = document.getElementById('review-sort').value;
   let sorted = [...prof.reviews];
   if (sortValue === 'latest') sorted.sort((a, b) => b.timestamp - a.timestamp);
   else if (sortValue === 'rating') sorted.sort((a, b) => b.rating - a.rating);
 
-  document.getElementById('review-list-container').innerHTML = sorted
+  if (sorted.length === 0) {
+    container.innerHTML = `<p style="font-size:12px; color:var(--text-muted); text-align:center; padding:20px;">등록된 후기가 없습니다. 첫 후기를 남겨보세요!</p>`;
+    return;
+  }
+
+  container.innerHTML = sorted
     .map(
       (rev) => `
     <div class="review-clean-node">
@@ -272,7 +383,7 @@ function sortAndRenderReviews() {
     .join('');
 }
 
-// 개편된 회원가입 폼 제출 이벤트 바인딩
+// 회원가입 완료 버튼 액션
 document
   .getElementById('btn-execute-register')
   .addEventListener('click', () => {
@@ -281,17 +392,17 @@ document
     const studentId = document.getElementById('reg-student-id').value;
 
     if (!email || !name || !studentId) {
-      alert('모든 회원가입 필수정보 및 학번인증 란을 기입해 주세요.');
+      alert('모든 회원가입 필수정보 란을 기입해 주세요.');
       return;
     }
 
     userName = name;
     userStudentId = studentId;
-    userPoints = 20; // 가입 즉시 20P 적립 조건 유지
+    userPoints = 20; // 가입 기본금 20포인트 지급 고정
     isLoggedIn = true;
     document.getElementById('auth-modal').classList.add('hidden');
     alert(
-      `🎁 강의라운지 가입을 환영합니다, ${userName}님! 신규 회원가입 20포인트가 자동 적립되었습니다.`,
+      `🎁 회원가입 축하드립니다, ${userName}님! 기본 지급 20포인트가 충전되었습니다.`,
     );
     updateAuthUI();
   });
@@ -362,38 +473,6 @@ function renderDetailPage(profId) {
   sortAndRenderReviews();
 }
 
-function renderJokboStore() {
-  const container = document.getElementById('jokbo-list-container');
-  container.innerHTML = jokboStoreData
-    .map((item) => {
-      const isOwned = purchasedJokbo.some((p) => p.id === item.id);
-      return `
-      <div class="jokbo-card">
-        <div>
-          <span class="jokbo-badge">${item.profName}</span>
-          <div class="jokbo-title-text">${item.subject} (${item.type})</div>
-          <div class="jokbo-meta">가격: <strong style="color:var(--primary-color);">${item.price} P</strong></div>
-        </div>
-        <button class="jokbo-buy-btn ${isOwned ? 'owned' : ''}" data-id="${item.id}">${isOwned ? '보유 완료' : '족보 구매'}</button>
-      </div>
-    `;
-    })
-    .join('');
-}
-
-function renderPurchasedJokboList() {
-  const listEl = document.getElementById('purchased-jokbo-list');
-  if (purchasedJokbo.length === 0) {
-    listEl.innerHTML = `<li class="empty-msg">아직 구매한 족보가 없습니다.</li>`;
-    return;
-  }
-  listEl.innerHTML = purchasedJokbo
-    .map(
-      (item) => `<li>📥 [${item.profName}] ${item.subject} - ${item.type}</li>`,
-    )
-    .join('');
-}
-
 function switchView(targetSection, menuBtn) {
   document
     .querySelectorAll('.page-view')
@@ -405,7 +484,23 @@ function switchView(targetSection, menuBtn) {
   if (menuBtn) menuBtn.classList.add('active');
 }
 
-// 이벤트 리스너 통합 바인딩
+// 팝업 모달 이벤트 제어 바인딩
+document
+  .getElementById('btn-open-jokbo-modal')
+  .addEventListener('click', () => {
+    if (!isLoggedIn) {
+      alert('족보 공유 및 업로드는 로그인이 필요합니다.');
+      openAuthModal('login');
+      return;
+    }
+    document.getElementById('jokbo-write-modal').classList.remove('hidden');
+  });
+document
+  .getElementById('btn-close-jokbo-modal')
+  .addEventListener('click', () =>
+    document.getElementById('jokbo-write-modal').classList.add('hidden'),
+  );
+
 document.getElementById('logo-home-trigger').addEventListener('click', () => {
   switchView(
     document.getElementById('view-home'),
@@ -441,7 +536,19 @@ document.getElementById('menu-mypage').addEventListener('click', () => {
     document.getElementById('view-mypage'),
     document.getElementById('menu-mypage'),
   );
+  updateAuthUI();
 });
+
+document
+  .getElementById('btn-review-action-trigger')
+  .addEventListener('click', () => {
+    if (!isLoggedIn) openAuthModal('login');
+    else
+      switchView(
+        document.getElementById('view-mypage'),
+        document.getElementById('menu-mypage'),
+      );
+  });
 
 document
   .getElementById('home-search-input')
@@ -480,10 +587,10 @@ document.getElementById('btn-back-to-home').addEventListener('click', () => {
   renderProfessorList();
 });
 
-document.querySelectorAll('.tab-btn').forEach((btn) => {
+document.querySelectorAll('.tab-menu .tab-btn').forEach((btn) => {
   btn.addEventListener('click', () => {
     document
-      .querySelectorAll('.tab-btn')
+      .querySelectorAll('.tab-menu .tab-btn')
       .forEach((b) => b.classList.remove('active'));
     document
       .querySelectorAll('.tab-content')
@@ -501,6 +608,19 @@ document.body.addEventListener('click', (e) => {
     e.target.id === 'btn-sidebar-login'
   )
     openAuthModal('login');
+  if (e.target.id === 'btn-logout') {
+    isLoggedIn = false;
+    isCertified = false;
+    userPoints = 20;
+    purchasedJokbo = [];
+    alert('로그아웃 되었습니다.');
+    updateAuthUI();
+    switchView(
+      document.getElementById('view-home'),
+      document.getElementById('menu-home'),
+    );
+    renderProfessorList();
+  }
 });
 document
   .getElementById('btn-close-auth-modal')
@@ -517,7 +637,7 @@ document
 document.getElementById('btn-execute-login').addEventListener('click', () => {
   isLoggedIn = true;
   document.getElementById('auth-modal').classList.add('hidden');
-  alert('🔑 정상적으로 로그인 연동되었습니다.');
+  alert('🔑 정상적으로 연동 로그인되었습니다.');
   updateAuthUI();
 });
 
