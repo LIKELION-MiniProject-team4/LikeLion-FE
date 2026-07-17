@@ -1,5 +1,15 @@
 -- 백엔드가 쓰는 DB 이름은 likelion 이므로 wiki -> likelion 으로 변경함
+-- ★ 한글 깨짐 방지: 이 파일을 어떤 클라이언트로 넣든 세션 문자셋을 utf8mb4로 강제.
+--   (latin1로 적재되면 한글이 깨져서 저장되므로 반드시 필요)
+SET NAMES utf8mb4;
+SET character_set_client = utf8mb4;
+SET character_set_connection = utf8mb4;
+SET character_set_results = utf8mb4;
+
 USE likelion;
+
+-- DB 기본 문자셋도 utf8mb4로 보정(테이블이 이후 생성될 때 상속)
+ALTER DATABASE likelion CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- ==============================
 -- 초기화 (재실행 시 중복 에러 방지용, FK 순서 무시하고 전부 비움)

@@ -72,6 +72,13 @@
             <button class="menu-item" id="menu-mypage">
               <span class="material-icons-outlined">person</span> 마이페이지
             </button>
+
+            <!-- 관리자 전용 (admin 롤로 로그인 시에만 노출) -->
+            <div class="menu-section hidden" id="admin-menu-section">관리자</div>
+            <button class="menu-item admin-only hidden" id="menu-admin">
+              <span class="material-icons-outlined">admin_panel_settings</span>
+              관리자 페이지
+            </button>
           </nav>
         </div>
 
@@ -186,7 +193,7 @@
               <input
                 type="text"
                 id="home-search-input"
-                placeholder="교수명 또는 학과를 입력해 보세요"
+                placeholder="교수명, 학과, 태그, 담당과목으로 검색해 보세요"
               />
               <span class="material-icons-outlined search-icon">search</span>
             </div>
@@ -278,23 +285,32 @@
             </div>
             <div class="tag-action-area">
               <div id="tag-input-row" class="tag-input-row hidden">
-                <input
-                  type="text"
-                  id="tag-input-field"
-                  placeholder="예: 시험 범위 명확, 조교 친절"
-                  maxlength="20"
-                />
-                <button class="tag-mini-submit-btn" id="btn-tag-submit-confirm">
-                  등록
-                </button>
+                <div class="tag-choice-guide">아래 태그 중 하나를 눌러 기여하세요</div>
+                <div id="tag-choice-list" class="tag-choice-list"></div>
               </div>
               <button class="tag-big-submit-btn" id="btn-tag-input-trigger">
-                <span class="material-icons-outlined">add</span> 태그 입력하기
-                (+2P)
+                <span class="material-icons-outlined">sell</span> 태그 달기 (+2P)
               </button>
               <p class="tag-notice-text" id="tag-notice-msg">
                 태그 입력은 로그인이 필요합니다.
               </p>
+
+              <!-- 관리자 전용: 새 태그 생성 (admin 롤일 때만 노출) -->
+              <div id="admin-tag-create" class="admin-tag-create hidden">
+                <div class="admin-tag-create-label">
+                  <span class="material-icons-outlined">admin_panel_settings</span>
+                  관리자: 새 태그 등록
+                </div>
+                <div class="admin-tag-create-row">
+                  <input
+                    type="text"
+                    id="admin-tag-name"
+                    placeholder="새 태그명 (예: 출결 엄격함)"
+                    maxlength="20"
+                  />
+                  <button id="btn-admin-create-tag">등록</button>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -440,7 +456,7 @@
                   <svg
                     id="radar-svg"
                     class="radar-svg"
-                    viewBox="0 0 300 280"
+                    viewBox="-40 0 380 280"
                     aria-label="교수 평가 레이더 차트"
                   ></svg>
                 </div>
@@ -521,7 +537,7 @@
                     color: var(--text-muted);
                     font-weight: normal;
                   "
-                  >(모든 족보 균일가 10P)</span
+                  >(열람 10P · 재열람 무료)</span
                 >
               </h2>
             </div>
@@ -572,7 +588,7 @@
                   <span class="material-icons-outlined">payments</span> 포인트
                 </button>
                 <button class="mp-nav-item" data-tab="history">
-                  <span class="material-icons-outlined">history</span> 작업 내역
+                  <span class="material-icons-outlined">history</span> 활동 내역
                 </button>
                 <button class="mp-nav-item" data-tab="jokbo">
                   <span class="material-icons-outlined">folder_shared</span>
@@ -617,23 +633,6 @@
                       <p class="point-subtext">
                         누적 활동으로 모은 실시간 보유 포인트입니다.
                       </p>
-                      <div class="point-tier-box">
-                        <div class="point-tier-head">
-                          <span class="tier-name" id="tier-name"
-                            >우수 리뷰어</span
-                          >
-                          <span class="tier-next" id="tier-next-text"
-                            >다음 등급까지 25P</span
-                          >
-                        </div>
-                        <div class="point-tier-bar">
-                          <div
-                            class="point-tier-fill"
-                            id="tier-fill"
-                            style="width: 60%"
-                          ></div>
-                        </div>
-                      </div>
                     </div>
 
                     <div class="mp-card">
@@ -655,17 +654,17 @@
                     <h3>📥 내가 가진 족보</h3>
                     <ul class="purchased-list" id="point-jokbo-list">
                       <li class="empty-msg">
-                        아직 구매하거나 등록한 족보가 없습니다.
+                        아직 열람하거나 등록한 족보가 없습니다.
                       </li>
                     </ul>
                   </div>
                 </div>
 
-                <!-- 탭: 작업 내역 (포인트 전체 획득/차감 로그) -->
+                <!-- 탭: 활동 내역 (포인트 전체 획득/차감 로그) -->
                 <div id="mp-panel-history" class="mp-tab-panel hidden">
                   <div class="mp-card" style="justify-content: flex-start">
                     <div class="card-label-row">
-                      <span>전체 작업(포인트) 내역</span>
+                      <span>전체 활동 내역</span>
                     </div>
                     <ul class="points-history-list" id="full-history-list"></ul>
                   </div>
@@ -677,7 +676,7 @@
                     <h3>📥 내가 가진 족보 (보관함)</h3>
                     <ul class="purchased-list" id="purchased-jokbo-list">
                       <li class="empty-msg">
-                        아직 구매하거나 등록한 족보가 없습니다.
+                        아직 열람하거나 등록한 족보가 없습니다.
                       </li>
                     </ul>
                   </div>
@@ -744,6 +743,24 @@
                         type="text"
                         id="edit-user-nickname"
                         placeholder="예: 첨단학부1학년"
+                      />
+                    </div>
+                    <div class="input-field">
+                      <label>새 비밀번호</label>
+                      <input
+                        type="password"
+                        id="edit-user-password"
+                        placeholder="변경 시에만 입력 (8자 이상)"
+                        autocomplete="new-password"
+                      />
+                    </div>
+                    <div class="input-field">
+                      <label>새 비밀번호 확인</label>
+                      <input
+                        type="password"
+                        id="edit-user-password-confirm"
+                        placeholder="새 비밀번호를 한 번 더 입력"
+                        autocomplete="new-password"
                       />
                     </div>
                     <button
@@ -937,6 +954,99 @@
             white-space: pre-wrap;
           "
         ></div>
+      </div>
+    </div>
+
+    <!-- 모달: 관리자 페이지 (회원 목록) -->
+    <div class="modal-dim hidden" id="admin-modal">
+      <div class="modal-card" style="max-width: 640px">
+        <button class="modal-close-btn" id="btn-close-admin">
+          <span class="material-icons-outlined">close</span>
+        </button>
+        <h2 class="auth-title">
+          <span class="material-icons-outlined" style="vertical-align: middle"
+            >admin_panel_settings</span
+          >
+          관리자 페이지
+        </h2>
+        <div class="admin-tabs">
+          <button class="admin-tab active" data-atab="members">회원 목록</button>
+          <button class="admin-tab" data-atab="reports">신고된 리뷰</button>
+        </div>
+
+        <div id="admin-tab-members">
+          <p class="admin-tab-desc">
+            가입 회원 목록입니다. 상세보기를 눌러 회원 정보를 확인하세요.
+          </p>
+          <div
+            id="admin-member-list"
+            style="max-height: 360px; overflow-y: auto"
+          ></div>
+        </div>
+
+        <div id="admin-tab-reports" class="hidden">
+          <p class="admin-tab-desc">
+            신고 접수된 리뷰와 사유입니다. 내용을 확인하고 조치하세요.
+          </p>
+          <div
+            id="admin-report-list"
+            style="max-height: 360px; overflow-y: auto"
+          ></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 모달: 리뷰 신고 -->
+    <div class="modal-dim hidden" id="report-modal">
+      <div class="modal-card" style="max-width: 420px">
+        <button class="modal-close-btn" id="btn-close-report">
+          <span class="material-icons-outlined">close</span>
+        </button>
+        <h2 class="auth-title">🚩 리뷰 신고</h2>
+        <p
+          style="
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-bottom: 12px;
+            text-align: center;
+          "
+        >
+          신고 사유를 선택하거나 직접 입력해 주세요.
+        </p>
+        <div id="report-reason-chips" class="report-reason-chips"></div>
+        <textarea
+          id="report-reason-input"
+          placeholder="신고 사유를 입력해 주세요. (예: 부적절한 내용입니다)"
+          rows="3"
+          style="
+            width: 100%;
+            margin-top: 10px;
+            padding: 12px;
+            border: 1.5px solid var(--border-color);
+            border-radius: 8px;
+            font-size: 13px;
+            outline: none;
+            resize: vertical;
+          "
+        ></textarea>
+        <button
+          class="auth-submit-btn"
+          id="btn-submit-report"
+          style="width: 100%; margin-top: 12px"
+        >
+          신고 접수
+        </button>
+      </div>
+    </div>
+
+    <!-- 모달: 회원 상세 정보 -->
+    <div class="modal-dim hidden" id="member-detail-modal">
+      <div class="modal-card" style="max-width: 420px">
+        <button class="modal-close-btn" id="btn-close-member-detail">
+          <span class="material-icons-outlined">close</span>
+        </button>
+        <h2 class="auth-title">회원 정보</h2>
+        <div id="member-detail-body" class="member-detail-body"></div>
       </div>
     </div>
 

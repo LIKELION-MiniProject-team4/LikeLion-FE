@@ -38,14 +38,70 @@ function clearToken() {
 function pickToken(body) {
   if (!body) return null;
   const d = body.data || {};
-  return (
+  const direct =
     body.token ||
     body.accessToken ||
+    body.jwt ||
     d.token ||
     d.accessToken ||
-    d.accessToken?.token ||
-    null
-  );
+    d.jwt ||
+    (d.accessToken && d.accessToken.token) ||
+    (d.tokenInfo && d.tokenInfo.accessToken);
+  if (typeof direct === 'string' && direct) return direct;
+
+  // 키 이름이 달라도 놓치지 않도록: 'token'이 들어간 키의 문자열, 또는 JWT 형태를 깊이 탐색
+  const looksJwt = (s) =>
+    typeof s === 'string' && /^[\w-]+\.[\w-]+\.[\w-]+$/.test(s);
+  let found = null;
+  const walk = (o) => {
+    if (!o || typeof o !== 'object' || found) return;
+    for (const [k, v] of Object.entries(o)) {
+      if (found) break;
+      if (typeof v === 'string') {
+        if (/token/i.test(k) && v.length > 20 && !/refresh/i.test(k)) {
+          found = v;
+          break;
+        }
+        if (looksJwt(v)) {
+          found = v;
+          break;
+        }
+      } else if (v && typeof v === 'object') {
+        walk(v);
+      }
+    }
+  };
+  walk(body);
+  return found;
+}
+
+// JWT의 만료(exp)를 클라이언트에서 미리 확인한다. (이 백엔드 토큰은 15분짜리로 짧다)
+function isTokenExpired() {
+  const t = getToken();
+  if (!t) return true;
+  try {
+    const payload = JSON.parse(atob(t.split('.')[1]));
+    if (!payload.exp) return false;
+    return Date.now() / 1000 >= payload.exp;
+  } catch (_) {
+    return false; // 못 읽으면 만료로 단정하지 않음
+  }
+}
+
+// 서버 반영이 가능한 인증 상태인지 확인. 만료면 한 번만 안내하고 로컬 처리로 넘긴다.
+let __tokenExpiredNotified = false;
+function canSyncToServer() {
+  if (!getToken()) return false;
+  if (isTokenExpired()) {
+    if (!__tokenExpiredNotified) {
+      __tokenExpiredNotified = true;
+      alert(
+        '로그인 세션이 만료됐어요(약 15분). 서버 반영은 다시 로그인 후 가능하며, 지금 활동은 화면(로컬)에만 반영됩니다.',
+      );
+    }
+    return false;
+  }
+  return true;
 }
 
 // 로그인 토큰을 자동으로 붙여 주는 fetch 래퍼 (인증이 필요한 API용)
@@ -168,7 +224,14 @@ function loadUserIntoSession(email) {
   userName = u.name;
   userNickname = u.nickname;
   userStudentId = u.studentId;
-  userJoinDate = u.joinDate || '2024.02.10';
+  // 저장된 가입일이 있으면 사용, 없던 기존 계정은 오늘 날짜로 보정 후 저장
+  if (u.joinDate) {
+    userJoinDate = u.joinDate;
+  } else {
+    userJoinDate = todayDateStr();
+    u.joinDate = userJoinDate;
+    saveUsers(users);
+  }
   userPoints = u.points;
   isCertified = !!u.isCertified;
   bookmarkedIds = u.bookmarkedIds || [];
@@ -181,7 +244,24 @@ function loadUserIntoSession(email) {
 
   currentUserEmail = email;
   isLoggedIn = true;
+  isAdmin = computeIsAdmin(email, u);
   return true;
+}
+
+// ============================================================
+// 관리자(admin 롤) 판별
+//  - 서버가 준 role 값이 'ADMIN'이거나
+//  - 계정 이메일이 지정된 관리자 계정이면 관리자로 본다.
+//  (추후 서버 롤 값이 확정되면 이 로직만 교체하면 된다.)
+// ============================================================
+const ADMIN_EMAILS = ['admin@eulji.ac.kr', 'admin@likelion.com'];
+function computeIsAdmin(email, user) {
+  const role = (user && (user.role || user.authority)) || '';
+  if (String(role).toUpperCase().includes('ADMIN')) return true;
+  if (email && ADMIN_EMAILS.includes(email.toLowerCase())) return true;
+  // 데모 편의: 이메일 아이디가 'admin'으로 시작하면 관리자로 취급
+  if (email && email.toLowerCase().startsWith('admin')) return true;
+  return false;
 }
 
 // ============================================================
@@ -189,6 +269,7 @@ function loadUserIntoSession(email) {
 // ============================================================
 let isLoggedIn = false;
 let isCertified = false;
+let isAdmin = false; // 관리자(admin 롤) 여부
 let currentUserEmail = null;
 let userPoints = 20;
 let userName = '을지유저';
@@ -204,6 +285,14 @@ let purchasedJokbo = [];
 let taggedProfessorIds = [];
 let pointHistoryLog = [];
 
+// 오늘 날짜를 'YYYY.MM.DD' 형식 문자열로 반환 (가입일 등 표시용)
+function todayDateStr() {
+  const d = new Date();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}.${mm}.${dd}`;
+}
+
 function addPointHistory(label, delta) {
   pointHistoryLog.unshift({ label, delta });
   renderPointHistory();
@@ -213,100 +302,7 @@ function addPointHistory(label, delta) {
 // ============================================================
 // 기본(시드) 데이터 - localStorage에 아무것도 없을 때만 사용됨
 // ============================================================
-const DEFAULT_PROFESSORS = [
-  {
-    id: 1,
-    name: '김을지 교수님',
-    college: '보건과학대학',
-    dept: '물리치료학과',
-    rating: 4.6,
-    reviewCount: 3,
-    grade: '1',
-    tags: ['시험 핵심위주', '학점 깔끔', '출결 엄격'],
-    subjects: ['온열치방학', '재활운동학'],
-    // 다이어그램 탭 4대 핵심 지표 (1~5 척도) - 리뷰가 새로 등록될 때마다 가중평균으로 갱신됨
-    diagramMetrics: {
-      examDifficulty: 4.2,
-      gradeDifficulty: 3.8,
-      attendanceDifficulty: 4.5,
-      workload: 3.1,
-      sampleCount: 3,
-    },
-    allTags: [
-      { name: '시험난이도 높음', count: 68, max: 80 },
-      { name: '과제 많음', count: 54, max: 80 },
-      { name: '출결 간소화', count: 22, max: 80 },
-    ],
-    reviews: [
-      {
-        id: 101,
-        writer: '익명 수강생',
-        rating: 5,
-        semester: '2024-1',
-        text: '수업 내용을 이해하기 쉽게 설명해주셔서 좋았어요. 과제도 적절한 수준이었습니다!',
-        date: '2024.05.12',
-        timestamp: new Date('2024-05-12').getTime(),
-      },
-      {
-        id: 102,
-        writer: '익명 수강생',
-        rating: 4,
-        semester: '2024-1',
-        text: '자료를 잘 제공해주셔서 시험 공부하기 편했어요. 시험 난이도는 중간 정도!',
-        date: '2024.04.28',
-        timestamp: new Date('2024-04-28').getTime(),
-      },
-      {
-        id: 103,
-        writer: '익명 수강생',
-        rating: 5,
-        semester: '2023-2',
-        text: '피드백이 빨라서 질문하기 좋았습니다. 유쾌하셔서 수업 분위기도 좋아요!',
-        date: '2023.03.15',
-        timestamp: new Date('2023-03-15').getTime(),
-      },
-    ],
-  },
-  {
-    id: 2,
-    name: '박라운지 교수님',
-    college: '보건과학대학',
-    dept: '임상병리학과',
-    rating: 4.5,
-    reviewCount: 2,
-    grade: '2',
-    tags: ['과제 없음', '출결 프리'],
-    subjects: ['기초임상학', '실습'],
-    diagramMetrics: {
-      examDifficulty: 2.5,
-      gradeDifficulty: 4.6,
-      attendanceDifficulty: 1.8,
-      workload: 1.5,
-      sampleCount: 2,
-    },
-    allTags: [{ name: '학점 혜자', count: 30, max: 50 }],
-    reviews: [
-      {
-        id: 201,
-        writer: '익명 수강생',
-        rating: 5,
-        semester: '2024-2',
-        text: '과제 부담이 거의 없어서 다른 전공 공부에 집중하기 좋았어요.',
-        date: '2024.06.02',
-        timestamp: new Date('2024-06-02').getTime(),
-      },
-      {
-        id: 202,
-        writer: '익명 수강생',
-        rating: 4,
-        semester: '2024-1',
-        text: '출결이 자유로운 편이고 학점도 잘 주시는 편이었습니다.',
-        date: '2024.04.10',
-        timestamp: new Date('2024-04-10').getTime(),
-      },
-    ],
-  },
-];
+const DEFAULT_PROFESSORS = []; // 하드코딩 제거 - 교수는 전적으로 서버(GET /api/professors)에서 로드
 
 // 기본 예시 족보는 제거함(내용 없는 껍데기라 삭제). 상점은 사용자·서버 등록 족보로 채워진다.
 const DEFAULT_JOKBO = [];
@@ -342,15 +338,18 @@ async function loadProfessorsFromServer() {
       const prev = prevById[p.professorId];
       return {
         id: p.professorId,
-        name: p.name, // 서버가 준 최신 이름/학과로 갱신
+        name: p.name, // 서버가 준 이름/학과가 기준
         departmentId: p.departmentId,
-        dept: p.departmentName || (prev ? prev.dept : ''),
-        college: prev ? prev.college : '',
+        dept: p.departmentName || '',
+        // 서버가 안 주는 하드코딩 전용 필드(대학/학년/카드태그)는 쓰지 않는다 → 모든 교수 통일
+        college: '',
+        grade: '',
+        tags: [],
+        // 아래는 서버 리뷰에서 파생/계산되는 값 → 있으면 유지, 없으면 기본값
         rating: prev ? prev.rating : 0,
         reviewCount: prev ? prev.reviewCount : 0,
-        grade: prev ? prev.grade : '',
-        tags: prev ? prev.tags : [],
         subjects: prev ? prev.subjects : [],
+        subjectOptions: prev ? prev.subjectOptions : [],
         diagramMetrics: prev
           ? prev.diagramMetrics
           : {
@@ -360,8 +359,8 @@ async function loadProfessorsFromServer() {
               workload: 0,
               sampleCount: 0,
             },
-        allTags: prev ? prev.allTags : [],
-        reviews: prev ? prev.reviews : [], // 로컬 리뷰 보존
+        allTags: prev ? prev.allTags || [] : [],
+        reviews: prev ? prev.reviews || [] : [],
       };
     });
 
@@ -379,9 +378,20 @@ jokboStoreData = jokboStoreData.filter((j) => j.registeredBy || j.content);
 // ============================================================
 // 인증/프로필 UI 갱신
 // ============================================================
+// 관리자 전용 메뉴(사이드바 '관리자 페이지' 버튼) 노출 여부 갱신
+function updateAdminUI() {
+  const show = isLoggedIn && isAdmin;
+  const btn = document.getElementById('menu-admin');
+  const section = document.getElementById('admin-menu-section');
+  if (btn) btn.classList.toggle('hidden', !show);
+  if (section) section.classList.toggle('hidden', !show);
+}
+
 function updateAuthUI() {
   const writeLockOverlay = document.getElementById('review-write-lock-overlay');
   const reviewLockMsg = document.getElementById('review-lock-msg');
+
+  updateAdminUI();
 
   if (isLoggedIn) {
     document.getElementById('profile-logged-out').classList.add('hidden');
@@ -466,21 +476,22 @@ function renderJokboStore() {
       const canDelete = isLoggedIn && item.registeredBy === userNickname;
       return `
       <div class="jokbo-card">
-        <div>
+        <div class="jokbo-card-head">
           <span class="jokbo-badge">${item.profName}</span>
-          <div class="jokbo-title-text">${item.subject}</div>
-          <div class="jokbo-meta">유형: ${item.type} · 가격: <strong style="color:var(--primary-color);">${item.price} P</strong></div>
-          <div class="jokbo-registrant">${registrantText}</div>
-        </div>
-        <div class="jokbo-card-actions">
-          <button class="jokbo-buy-btn ${isOwned ? 'owned' : ''}" data-id="${item.id}" ${isOwned ? 'disabled' : ''}>
-            ${isOwned ? '보유 완료' : '족보 구매'}
-          </button>
+          ${isOwned ? '<span class="jokbo-owned-pill">열람함</span>' : ''}
           ${
             canDelete
-              ? `<button class="jokbo-delete-btn" data-del="${item.id}"><span class="material-icons-outlined">delete</span> 삭제</button>`
+              ? `<button class="jokbo-delete-btn" data-del="${item.id}" title="삭제"><span class="material-icons-outlined">delete</span></button>`
               : ''
           }
+        </div>
+        <div class="jokbo-title-text">${item.subject}</div>
+        <div class="jokbo-meta">${item.type} · ${registrantText}</div>
+        <div class="jokbo-card-footer">
+          <span class="jokbo-price">열람 <strong>10P</strong></span>
+          <button class="jokbo-buy-btn ${isOwned ? 'owned' : ''}" data-id="${item.id}">
+            ${isOwned ? '다시 열람' : '열람하기'}
+          </button>
         </div>
       </div>
     `;
@@ -489,37 +500,37 @@ function renderJokboStore() {
 }
 
 document.body.addEventListener('click', (e) => {
-  if (
-    e.target.classList.contains('jokbo-buy-btn') &&
-    !e.target.classList.contains('owned')
-  ) {
+  // 족보 '열람' (명세: 최초 열람 시 -10P, 재열람 무료)
+  const viewBtn = e.target.closest('.jokbo-buy-btn');
+  if (viewBtn) {
     if (!isLoggedIn) {
-      alert('족보 구매는 로그인이 필요합니다.');
+      alert('족보 열람은 로그인이 필요합니다.');
       openAuthModal('login');
       return;
     }
 
-    const jokboId = Number(e.target.getAttribute('data-id'));
+    const jokboId = Number(viewBtn.getAttribute('data-id'));
     const item = jokboStoreData.find((j) => j.id === jokboId);
+    if (!item) return;
 
-    if (item) {
-      if (userPoints < item.price) {
+    const alreadyUnlocked = purchasedJokbo.some((p) => p.id === jokboId);
+    if (!alreadyUnlocked) {
+      // 최초 열람 → 10P 차감 (서버도 GET content 시 최초 1회 -10P 차감)
+      if (userPoints < 10) {
         alert(
-          `포인트가 부족합니다! (현재 보유: ${userPoints}P / 필요: ${item.price}P)\n리뷰 작성이나 태그 기여로 포인트를 획득하세요.`,
+          `포인트가 부족해 열람할 수 없어요. (열람 10P 필요 / 현재 ${userPoints}P)\n리뷰 작성이나 태그 기여로 포인트를 모아보세요.`,
         );
         return;
       }
-
-      userPoints -= item.price;
+      userPoints -= 10;
       purchasedJokbo.push(item);
-      addPointHistory(`${item.subject} 구매 차감`, -item.price);
-      alert(
-        `🎁 [${item.subject}]를 성공적으로 구매했습니다. 10포인트가 차감되었습니다.`,
-      );
-
+      addPointHistory(`${item.subject} 열람 차감`, -10);
       updateAuthUI();
       renderJokboStore();
     }
+    // 열람 모달 열기 (+ 서버 content 조회). 재열람은 무료.
+    viewJokboContentById(jokboId);
+    return;
   }
 
   // 족보 삭제 (내가 등록한 족보만)
@@ -625,17 +636,47 @@ document.getElementById('btn-save-profile').addEventListener('click', () => {
   const newNickname = document
     .getElementById('edit-user-nickname')
     .value.trim();
+  const pwdEl = document.getElementById('edit-user-password');
+  const pwdConfirmEl = document.getElementById('edit-user-password-confirm');
+  const newPwd = pwdEl ? pwdEl.value : '';
+  const newPwdConfirm = pwdConfirmEl ? pwdConfirmEl.value : '';
 
   if (!newName || !newNickname) {
     alert('이름, 닉네임을 모두 입력해 주세요.');
     return;
   }
 
+  // 비밀번호는 입력했을 때만 변경 (비워두면 기존 비밀번호 유지)
+  if (newPwd || newPwdConfirm) {
+    if (newPwd.length < 8) {
+      alert('비밀번호는 8자리 이상으로 설정해 주세요.');
+      return;
+    }
+    if (newPwd !== newPwdConfirm) {
+      alert('새 비밀번호가 서로 일치하지 않습니다.');
+      return;
+    }
+    const users = getUsers();
+    if (currentUserEmail && users[currentUserEmail]) {
+      users[currentUserEmail].password = newPwd;
+      saveUsers(users);
+    }
+  }
+
   userName = newName;
   userNickname = newNickname;
   syncCurrentUserToStorage();
   updateAuthUI();
-  alert('✅ 내 정보가 수정되었습니다.');
+
+  // 저장 후 비밀번호 입력칸 비우기
+  if (pwdEl) pwdEl.value = '';
+  if (pwdConfirmEl) pwdConfirmEl.value = '';
+
+  alert(
+    newPwd
+      ? '✅ 내 정보와 비밀번호가 수정되었습니다.'
+      : '✅ 내 정보가 수정되었습니다.',
+  );
 });
 
 document.querySelector('.mypage-aside-nav').addEventListener('click', (e) => {
@@ -656,7 +697,7 @@ function renderPurchasedJokboList() {
 
   const html =
     purchasedJokbo.length === 0
-      ? `<li class="empty-msg">아직 구매하거나 등록한 족보가 없습니다. 상점에서 교환해 보세요!</li>`
+      ? `<li class="empty-msg">아직 열람하거나 등록한 족보가 없습니다. 상점에서 열람해 보세요!</li>`
       : purchasedJokbo
           .map(
             (item) => `
@@ -693,8 +734,9 @@ function viewJokboContentById(jokboId) {
 
   document.getElementById('jokbo-view-modal').classList.remove('hidden');
 
-  // 서버에서 실제 족보 내용을 가져와 갱신 (실패 시 로컬 내용 유지)
-  fetchExamArchiveContent(jokboId);
+  // 서버에 등록된 족보(fromServer)일 때만 서버 내용을 조회한다.
+  // 로컬에서 만든 족보는 id가 타임스탬프라 서버엔 없으므로 호출하면 404가 난다.
+  if (item.fromServer) fetchExamArchiveContent(jokboId);
 }
 
 // ============================================================
@@ -737,13 +779,78 @@ async function fetchExamArchivesForProfessor(professorId) {
   }
 }
 
+// 족보 상점 진입 시: 모든 교수의 서버 족보를 불러와 상점에 채운다.
+// (서버 족보는 교수 상세를 안 들러도 상점에서 바로 보이고, 열람 시 content API가 호출되게)
+async function loadAllExamArchivesForStore() {
+  if (!Array.isArray(professorsData) || professorsData.length === 0) return;
+  await Promise.all(
+    professorsData.map((p) => fetchExamArchivesForProfessor(p.id)),
+  );
+  renderJokboStore();
+}
+
+// ============================================================
+// [API 연동] 족보(기출자료) 신규 등록  ★엔드포인트는 추정 — 명세서로 확인 필요★
+//  추정: POST /api/professors/{professorId}/exam-archives
+//  request: { title, content, writerSemester }  (인증 필요)
+//  response data: { examArchiveId, title, content, writerSemester, createdAt }
+//  실패해도 로컬 등록은 유지된다.
+// ============================================================
+async function createExamArchiveOnServer(professorId, title, content, writerSemester) {
+  if (!professorId) return null;
+  if (!canSyncToServer()) {
+    console.info('토큰 없음/만료 → 족보 서버 등록 생략(로컬만 반영)');
+    return null;
+  }
+  try {
+    const res = await authFetch(
+      `${API_BASE}/api/professors/${professorId}/exam-archives`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, content, writerSemester }),
+      },
+    );
+    if (!res.ok) {
+      console.warn('족보 서버 등록 실패:', res.status);
+      return null;
+    }
+    const body = await res.json().catch(() => ({}));
+    return body.data || null;
+  } catch (e) {
+    console.warn('족보 서버 등록 연결 실패, 로컬만 반영:', e);
+    return null;
+  }
+}
+
+// 명세: GET /api/exam-archives/{archiveId}/content (인증 필요)
+//  성공 200 EXAM_ARCHIVE_200_2 → 최초 열람 시 서버가 포인트 -10 차감, 재열람은 무차감.
+//  실패 401 COMMON_401(인증) / 402 EXAM_ARCHIVE_402(포인트 부족) / 404 EXAM_ARCHIVE_404(없음)
 async function fetchExamArchiveContent(archiveId) {
+  // 로그인(토큰)이 아예 없으면 서버 열람 불가. 만료 토큰은 그대로 호출해 401 안내를 받는다.
+  if (!getToken()) {
+    alert('족보 열람은 로그인이 필요해요.');
+    return;
+  }
   try {
     const res = await authFetch(
       `${API_BASE}/api/exam-archives/${archiveId}/content`,
     );
-    if (!res.ok) return; // 로컬 내용 유지
-    const d = (await res.json()).data;
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const code = body.code || '';
+      if (res.status === 402 || code === 'EXAM_ARCHIVE_402') {
+        alert('포인트가 부족해 족보를 열람할 수 없어요. (열람 시 10P 필요)');
+      } else if (res.status === 404 || code === 'EXAM_ARCHIVE_404') {
+        alert('존재하지 않는 족보예요.');
+      } else if (res.status === 401 || code === 'COMMON_401') {
+        alert('족보 열람은 로그인이 필요해요. 다시 로그인해 주세요.');
+      } else {
+        console.warn('족보 열람 실패:', res.status, code);
+      }
+      return; // 로컬 내용 유지
+    }
+    const d = body.data;
     if (!d) return;
 
     document.getElementById('jokbo-view-title').innerText = d.title || '';
@@ -791,10 +898,11 @@ document
     }
 
     const newId = Date.now();
+    const title = sub + ' 기출족보';
     const newJokbo = {
       id: newId,
       profName: prof,
-      subject: sub + ' 기출족보',
+      subject: title,
       type: type,
       price: 10,
       content: content,
@@ -813,6 +921,21 @@ document
       `✨ [${userNickname}]님의 기출 족보가 상점에 등록되었습니다! (모든 족보 가격은 10P로 균일 책정됩니다)`,
     );
     renderJokboStore();
+
+    // 서버에도 등록 시도. 성공하면 서버 id/내용으로 연결(열람 시 서버 API 사용)
+    createExamArchiveOnServer(Number(profId), title, content, type).then(
+      (created) => {
+        if (created && created.examArchiveId) {
+          const j = jokboStoreData.find((x) => x.id === newId);
+          if (j) {
+            j.id = created.examArchiveId; // 서버 id로 교체
+            j.fromServer = true; // 열람 시 서버에서 내용 조회
+            saveJokboData();
+            renderJokboStore();
+          }
+        }
+      },
+    );
   });
 
 // 수강확인서 파일 제출
@@ -887,6 +1010,24 @@ function recomputeProfRating(prof) {
 }
 
 document.getElementById('btn-submit-review').addEventListener('click', () => {
+  // 로그인 + 수강확인서 인증이 되어야만 리뷰 작성 가능
+  if (!isLoggedIn) {
+    alert('리뷰 작성은 로그인이 필요합니다.');
+    openAuthModal('login');
+    return;
+  }
+  if (!isCertified) {
+    alert(
+      '리뷰 작성은 수강확인서 인증이 필요합니다.\n마이페이지 > 내 정보 수정에서 수강확인서를 등록해 주세요.',
+    );
+    switchView(
+      document.getElementById('view-mypage'),
+      document.getElementById('menu-mypage'),
+    );
+    switchMypageTab('edit');
+    return;
+  }
+
   const textInput = document.getElementById('input-review-text');
   const prof = professorsData.find((p) => p.id === currentProfId);
 
@@ -967,9 +1108,18 @@ function renderProfessorList() {
       : professorsData;
 
   data = data.filter((p) => {
+    // 교수명 / 학과 / 태그 / 담당과목 을 모두 검색 대상에 포함한다.
+    const haystacks = [
+      p.name,
+      p.dept,
+      p.college,
+      ...(p.tags || []),
+      ...((p.allTags || []).map((t) => t.name)),
+      ...(p.subjects || []),
+    ];
     const matchQuery =
-      p.name.toLowerCase().includes(query) ||
-      p.dept.toLowerCase().includes(query);
+      !query ||
+      haystacks.some((h) => (h || '').toLowerCase().includes(query));
     const matchDept = filterDept === 'all' || p.dept === filterDept;
     const matchGrade = filterGrade === 'all' || p.grade === filterGrade;
     return matchQuery && matchDept && matchGrade;
@@ -984,14 +1134,19 @@ function renderProfessorList() {
     const isBookmarked = bookmarkedIds.includes(prof.id);
     const card = document.createElement('div');
     card.className = 'prof-card';
+    // 서버/시드마다 필드가 빠질 수 있어 항상 기본값으로 보정 (교수마다 화면이 달라지는 문제 방지)
+    const safeTags = Array.isArray(prof.tags) ? prof.tags : [];
+    const safeSubjects = Array.isArray(prof.subjects) ? prof.subjects : [];
+    const safeReviews = Array.isArray(prof.reviews) ? prof.reviews : [];
+    const safeRating = typeof prof.rating === 'number' ? prof.rating : 0;
     card.innerHTML = `
       <div class="prof-card-left">
         <div class="prof-avatar-large"><span class="material-icons-outlined">account_circle</span></div>
         <div class="prof-info-block">
           <h3>${prof.name}</h3>
           <div class="dept-text">${[prof.college, prof.dept].filter(Boolean).join(' ')}${prof.grade ? ` · ${prof.grade}학년 대상` : ''}</div>
-          <div class="card-tags">${prof.tags.map((t) => `<span class="tag-badge">${t}</span>`).join('')}</div>
-          <div class="card-rating"><span class="material-icons-outlined">star</span> ${prof.rating.toFixed(1)} (${prof.reviews.length}개 리뷰)</div>
+          ${safeSubjects.length ? `<div class="card-subjects">담당과목: ${safeSubjects.join(', ')}</div>` : ''}
+          <div class="card-rating"><span class="material-icons-outlined">star</span> ${safeRating.toFixed(1)} (${safeReviews.length}개 리뷰)</div>
         </div>
       </div>
       <div class="prof-card-right">
@@ -1048,36 +1203,109 @@ function sortAndRenderReviews() {
 //  request: { reason }, 인증 필요(Authorization: Bearer)
 //  신고 버튼 클릭 → 사유 입력 → 서버로 전송
 // ============================================================
+// 로컬 신고 접수 내역 저장소 (백엔드 연동 전까지 프론트에서 접수 보관)
+function getReportsLog() {
+  return loadJSON('gl_reports', []);
+}
+function addReportLog(entry) {
+  const list = getReportsLog();
+  list.unshift(entry);
+  saveJSON('gl_reports', list);
+}
+
+// 신고 사유 프리셋
+const REPORT_REASONS = [
+  '부적절한 내용',
+  '욕설/비방',
+  '허위사실',
+  '광고/스팸',
+  '개인정보 노출',
+];
+let reportingReviewId = null;
+
 function reportReview(reviewId) {
   if (!isLoggedIn) {
     alert('리뷰 신고는 로그인이 필요합니다.');
     return;
   }
-  const reason = prompt('신고 사유를 입력해 주세요.\n(예: 부적절한 내용입니다)');
-  if (reason === null) return; // 취소
-  const trimmed = reason.trim();
-  if (!trimmed) {
-    alert('신고 사유를 입력해 주세요.');
-    return;
+  // 네이티브 prompt() 대신 앱 디자인에 맞는 모달을 띄운다.
+  reportingReviewId = reviewId;
+  const chips = document.getElementById('report-reason-chips');
+  if (chips) {
+    chips.innerHTML = REPORT_REASONS.map(
+      (r) => `<button type="button" class="report-reason-chip" data-reason="${r}">${r}</button>`,
+    ).join('');
   }
-  reportReviewOnServer(reviewId, trimmed);
+  const input = document.getElementById('report-reason-input');
+  if (input) input.value = '';
+  document.getElementById('report-modal').classList.remove('hidden');
 }
 
+function submitReport() {
+  const input = document.getElementById('report-reason-input');
+  const reason = (input ? input.value : '').trim();
+  if (!reason) {
+    alert('신고 사유를 입력하거나 선택해 주세요.');
+    return;
+  }
+  document.getElementById('report-modal').classList.add('hidden');
+  reportReviewOnServer(reportingReviewId, reason);
+  reportingReviewId = null;
+}
+
+// 명세: POST /api/reviews/{reviewId}/reports (인증 필요)
+//  성공 200 REVIEW_200_2 (data null)
+//  실패 400 COMMON_400(사유 누락) / 401 COMMON_401(인증) / 404 REVIEW_404(없는 리뷰) / 409 REVIEW_409_2(이미 신고)
 async function reportReviewOnServer(reviewId, reason) {
+  // 프론트에서 항상 접수 내역을 남긴다 (백엔드 미연동/실패 시에도 접수 보관)
+  addReportLog({
+    reviewId,
+    reason,
+    reporter: currentUserEmail || userNickname || '익명',
+    at: new Date().toISOString(),
+  });
+
+  // 로컬에서 작성한 리뷰(id가 타임스탬프)는 서버에 없으므로 서버 신고 대상이 아니다.
+  const isServerReview = professorsData.some((p) =>
+    (p.reviews || []).some((r) => r.id === reviewId && r.fromServer),
+  );
+
+  if (!isServerReview) {
+    alert('신고가 접수되었습니다. 감사합니다.\n검토 후 조치될 예정입니다.');
+    return;
+  }
+  if (!canSyncToServer()) {
+    alert(
+      '신고가 접수되었어요. (세션 만료로 서버 반영은 다시 로그인 후 처리됩니다)',
+    );
+    return;
+  }
+
   try {
     const res = await authFetch(`${API_BASE}/api/reviews/${reviewId}/reports`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ reason }),
     });
+    const body = await res.json().catch(() => ({}));
+    const code = body.code || '';
     if (res.ok) {
-      alert('신고가 접수되었습니다. 감사합니다.');
+      alert('신고가 접수되었습니다. 감사합니다.\n검토 후 조치될 예정입니다.');
+    } else if (res.status === 409 || code === 'REVIEW_409_2') {
+      alert('이미 신고한 리뷰예요. (중복 신고는 불가합니다)');
+    } else if (res.status === 404 || code === 'REVIEW_404') {
+      alert('존재하지 않는 리뷰예요.');
+    } else if (res.status === 401 || code === 'COMMON_401') {
+      alert('신고는 로그인이 필요해요. 다시 로그인해 주세요.');
+    } else if (res.status === 400 || code === 'COMMON_400') {
+      alert('신고 사유를 입력해 주세요.');
     } else {
-      alert(`신고 처리에 실패했습니다. (${res.status})`);
+      console.warn('리뷰 신고 실패:', res.status, code);
+      alert('신고 처리에 실패했어요. 잠시 후 다시 시도해 주세요.');
     }
   } catch (e) {
-    console.warn('리뷰 신고 연결 실패:', e);
-    alert('서버에 연결하지 못해 신고를 보내지 못했습니다.');
+    console.warn('리뷰 신고 서버 연결 실패(로컬 접수됨):', e);
+    alert('신고가 접수되었습니다. (서버 연결 실패, 화면에는 접수됨)');
   }
 }
 
@@ -1145,6 +1373,7 @@ document
         phone,
         points: 20,
         isCertified: false,
+        joinDate: todayDateStr(), // 실제 가입일(오늘 날짜)로 저장
         bookmarkedIds: [],
         purchasedJokboIds: [],
         taggedProfessorIds: [],
@@ -1207,7 +1436,16 @@ document.getElementById('btn-execute-login').addEventListener('click', async () 
 
     // 서버가 돌려준 response 데이터
     const data = await res.json().catch(() => ({}));
-    setToken(pickToken(data)); // 토큰이 있으면 저장(이후 인증 요청에 자동 사용)
+    const loginToken = pickToken(data);
+    setToken(loginToken); // 토큰이 있으면 저장(이후 인증 요청에 자동 사용)
+    __tokenExpiredNotified = false; // 새로 로그인했으니 만료 안내 플래그 초기화
+    if (loginToken)
+      console.info('로그인 토큰 저장 완료(인증 요청에 자동 사용).');
+    else
+      console.warn(
+        '로그인 응답에서 토큰(JWT)을 못 찾았습니다. 인증이 필요한 요청(태그/신고 등)이 403이 날 수 있어요. 로그인 응답 형식을 확인하세요:',
+        data,
+      );
 
     // 서버 인증 성공 → 앱이 쓰는 로컬 세션으로 이어줌(다른 기능 유지용)
     const users = getUsers();
@@ -1221,6 +1459,7 @@ document.getElementById('btn-execute-login').addEventListener('click', async () 
         phone: data.phone || '',
         points: 20,
         isCertified: false,
+        joinDate: todayDateStr(),
         bookmarkedIds: [],
         purchasedJokboIds: [],
         taggedProfessorIds: [],
@@ -1230,13 +1469,27 @@ document.getElementById('btn-execute-login').addEventListener('click', async () 
       saveUsers(users);
     }
 
+    // 서버가 롤(role/authority)을 내려주면 계정에 저장 → 관리자 판별에 사용
+    const serverRole =
+      data.role || data.authority || (data.data && (data.data.role || data.data.authority));
+    if (serverRole) {
+      users[email].role = serverRole;
+      saveUsers(users);
+    }
+
     loadUserIntoSession(email);
     setCurrentUserEmail(email);
     document.getElementById('auth-modal').classList.add('hidden');
-    alert(
-      `로그인 되었습니다!\n${userNickname}님, 환영합니다.\n전공 교수 리뷰에서 다양한 정보를 확인해보세요.`,
-    );
     updateAuthUI();
+    if (isAdmin) {
+      // 관리자 계정으로 로그인하면 바로 관리자 페이지(모달)로 이동
+      alert(`관리자님, 환영합니다.\n관리자 페이지로 이동합니다.`);
+      openAdminModal();
+    } else {
+      alert(
+        `로그인 되었습니다!\n${userNickname}님, 환영합니다.\n전공 교수 리뷰에서 다양한 정보를 확인해보세요.`,
+      );
+    }
   } catch (e) {
     console.error('로그인 요청 오류:', e);
     alert(
@@ -1251,8 +1504,64 @@ document.getElementById('btn-execute-login').addEventListener('click', async () 
 });
 
 // ============================================================
-// 태그 기여 - 입력창을 실제로 펼쳐서 태그명을 직접 작성하게 처리
+// 태그 기여 - 직접 입력 대신, 미리 정의된 태그를 '클릭'해서 기여한다.
+//  (추후 서버(DB)에서 등록된 태그 목록을 받아 여기에 합쳐서 노출)
 // ============================================================
+// 기본 제공(프리셋) 태그. 서버 시드 태그와 이름을 맞춰, 클릭 시 서버 tagId로 반영되게 한다.
+// (서버 태그 목록을 못 받는 오프라인 상황의 대비용)
+const PRESET_TAGS = [
+  '출결 엄격함',
+  '출결 널널함',
+  '시험 어려움',
+  '과제 많음',
+  '학점 후함',
+  '설명 잘함',
+  '팀플 많음',
+];
+
+// 관리자가 만든(서버 등록 실패 시) 로컬 태그 목록 - 서버 복구 전 임시 보관
+function getLocalCreatedTags() {
+  return loadJSON('gl_local_tags', []);
+}
+function addLocalCreatedTag(name) {
+  const list = getLocalCreatedTags();
+  if (!list.some((n) => n.replace(/\s/g, '') === name.replace(/\s/g, ''))) {
+    list.push(name);
+    saveJSON('gl_local_tags', list);
+  }
+}
+
+// 현재 교수 상세에서 클릭 가능한 태그 목록 렌더.
+// 서버 태그가 있으면 서버 태그(유효한 tagId 보유)를 우선 노출한다.
+function renderTagChoiceList() {
+  const container = document.getElementById('tag-choice-list');
+  if (!container) return;
+  const prof = professorsData.find((p) => p.id === currentProfId);
+
+  // 중복 제거(공백 무시)하여 후보 목록 구성
+  const seen = new Set();
+  const candidates = [];
+  const add = (name) => {
+    if (!name) return;
+    const key = name.replace(/\s/g, '');
+    if (seen.has(key)) return;
+    seen.add(key);
+    candidates.push(name);
+  };
+  // 1순위: 서버 등록 태그 → 관리자가 만든 로컬 태그 → 프리셋 → 교수 기존 태그
+  serverTags.forEach((t) => add(t.name));
+  getLocalCreatedTags().forEach(add);
+  PRESET_TAGS.forEach(add);
+  if (prof && Array.isArray(prof.allTags)) prof.allTags.forEach((t) => add(t.name));
+
+  container.innerHTML = candidates
+    .map(
+      (name) =>
+        `<button type="button" class="tag-choice-chip" data-tag="${name}">${name}</button>`,
+    )
+    .join('');
+}
+
 document
   .getElementById('btn-tag-input-trigger')
   .addEventListener('click', () => {
@@ -1277,14 +1586,76 @@ document
       return;
     }
     const row = document.getElementById('tag-input-row');
+    renderTagChoiceList();
     row.classList.toggle('hidden');
-    if (!row.classList.contains('hidden')) {
-      document.getElementById('tag-input-field').focus();
-    }
   });
 
+// 태그 칩 클릭 → 해당 태그로 기여 처리
+document.getElementById('tag-choice-list').addEventListener('click', (e) => {
+  const chip = e.target.closest('.tag-choice-chip');
+  if (!chip) return;
+  submitTagByName(chip.getAttribute('data-tag'));
+});
+
+// 관리자 전용: 새 태그 등록 (POST /api/tags)
+async function handleAdminCreateTag() {
+  if (!isAdmin) {
+    alert('태그 생성은 관리자만 가능합니다.');
+    return;
+  }
+  const input = document.getElementById('admin-tag-name');
+  const name = (input ? input.value : '').trim();
+  if (!name) {
+    alert('등록할 태그명을 입력해 주세요.');
+    return;
+  }
+  // 이미 존재하는 태그면 서버에 보내지 않는다.
+  // (백엔드가 중복 시 409 대신 500으로 터지는 경우가 있어 사전 차단)
+  if (findServerTagId(name)) {
+    alert('이미 존재하는 태그명입니다. 목록에서 선택해 주세요.');
+    return;
+  }
+  if (!canSyncToServer()) {
+    alert('세션이 만료됐어요. 다시 로그인 후 태그를 등록해 주세요.');
+    return;
+  }
+  const result = await createTagOnServer(name);
+  if (result.ok) {
+    if (input) input.value = '';
+    renderTagChoiceList(); // 새 태그를 선택 목록에 즉시 반영
+    alert(`🏷️ 태그 "${name}" 를 등록했어요.`);
+  } else if (result.code === 'TAG_409_1' || result.status === 409) {
+    alert('이미 존재하는 태그명입니다. 다른 이름을 입력해 주세요.');
+  } else if (result.code === 'COMMON_400' || result.status === 400) {
+    alert('태그명을 확인해 주세요. (필수)');
+  } else if (result.status === 401 || result.status === 403) {
+    alert('권한이 없거나 세션이 만료됐어요. 관리자로 다시 로그인해 주세요.');
+  } else if (result.status === 500) {
+    // 백엔드 버그(500)로 서버 등록 실패 → 데모용으로 로컬에라도 추가해 화면엔 뜨게 한다.
+    addLocalCreatedTag(name);
+    if (input) input.value = '';
+    renderTagChoiceList();
+    alert(
+      `서버 등록은 실패했어요(백엔드 500 오류).\n대신 "${name}" 를 화면 목록에 임시로 추가했습니다.\n(서버 반영은 백엔드 수정 후 가능)`,
+    );
+  } else {
+    // 그 밖의 실패도 로컬 추가로 데모는 이어지게 한다.
+    addLocalCreatedTag(name);
+    if (input) input.value = '';
+    renderTagChoiceList();
+    alert(`서버 등록 실패(${result.status}). "${name}" 를 화면에 임시 추가했어요.`);
+  }
+}
+
+document
+  .getElementById('btn-admin-create-tag')
+  .addEventListener('click', handleAdminCreateTag);
+document.getElementById('admin-tag-name').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') handleAdminCreateTag();
+});
+
 // ============================================================
-// [API 연동] 태그 등록 (POST /api/admin/tags, 관리자/인증 필요)
+// [API 연동] 태그 등록 (POST /api/tags, 관리자 전용)
 //  request:  { name }
 //  response: { status, code, message, data: { tagId, name } }
 //  성공하면 서버가 만든 tagId를 돌려준다. 권한이 없으면 403이 날 수 있으며,
@@ -1292,6 +1663,8 @@ document
 // ============================================================
 // 서버에 등록된 전역 태그 이름 → tagId 매핑 (태그 클릭 시 tagId 조회에 사용)
 let serverTagMap = {};
+// 서버 태그 원본 목록 [{ tagId, name }] - 클릭 선택 후보로 사용(공백 유지)
+let serverTags = [];
 
 // ============================================================
 // [API 연동] 태그 목록 조회 (GET /api/tags)
@@ -1305,9 +1678,16 @@ async function fetchTagsFromServer() {
     const body = await res.json();
     const list = Array.isArray(body.data) ? body.data : [];
     serverTagMap = {};
+    serverTags = [];
     list.forEach((t) => {
-      if (t && t.name) serverTagMap[t.name.replace(/\s/g, '')] = t.tagId;
+      if (t && t.name) {
+        serverTagMap[t.name.replace(/\s/g, '')] = t.tagId;
+        serverTags.push({ tagId: t.tagId, name: t.name });
+      }
     });
+    // 태그 목록을 새로 받았으면, 지금 열려 있는 선택 목록도 갱신
+    const row = document.getElementById('tag-input-row');
+    if (row && !row.classList.contains('hidden')) renderTagChoiceList();
   } catch (e) {
     console.warn('태그 목록 서버 연결 실패:', e);
   }
@@ -1318,24 +1698,32 @@ function findServerTagId(name) {
   return serverTagMap[name.replace(/\s/g, '')] || null;
 }
 
+// [API 연동] 태그 등록 (POST /api/tags, 관리자 전용)
+//  request: { name }
+//  성공 201: { code:"TAG_201_1", data:{ tagId, name } }
+//  실패 400 COMMON_400(태그명 누락) / 409 TAG_409_1(이미 존재하는 태그명)
+//  { ok, data, status, code } 형태로 반환한다.
 async function createTagOnServer(name) {
   try {
-    const res = await authFetch(`${API_BASE}/api/admin/tags`, {
+    const res = await authFetch(`${API_BASE}/api/tags`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name }),
     });
-    if (!res.ok) {
-      console.warn('태그 서버 등록 실패:', res.status);
-      return null;
-    }
     const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      console.warn('태그 서버 등록 실패:', res.status, body.code || '');
+      return { ok: false, status: res.status, code: body.code || '', data: null };
+    }
     const data = body.data || null; // { tagId, name }
-    if (data && data.name) serverTagMap[data.name.replace(/\s/g, '')] = data.tagId;
-    return data;
+    if (data && data.name) {
+      serverTagMap[data.name.replace(/\s/g, '')] = data.tagId;
+      if (!serverTags.some((t) => t.tagId === data.tagId)) serverTags.push(data);
+    }
+    return { ok: true, status: res.status, code: body.code || '', data };
   } catch (e) {
-    console.warn('태그 서버 등록 연결 실패, 로컬만 반영:', e);
-    return null;
+    console.warn('태그 서버 등록 연결 실패:', e);
+    return { ok: false, status: 0, code: '', data: null };
   }
 }
 
@@ -1346,6 +1734,17 @@ async function createTagOnServer(name) {
 // ============================================================
 async function clickTagOnServer(professorId, tagId) {
   if (!professorId || !tagId) return;
+  // 토큰이 없거나 만료면 서버가 403을 주므로 아예 호출하지 않는다(로컬만 반영).
+  if (!canSyncToServer()) {
+    console.info('로그인 토큰 없음/만료 → 태그 클릭은 로컬에만 반영합니다.');
+    return;
+  }
+  // 이 백엔드는 태그 클릭 엔드포인트를 일반 USER 권한엔 허용하지 않아 403을 준다.
+  // 관리자가 아니면 서버 호출을 생략하고 로컬로만 반영해 불필요한 403을 없앤다.
+  if (!isAdmin) {
+    console.info('일반 사용자 태그 클릭은 서버 정책상 로컬에만 반영합니다.');
+    return;
+  }
   try {
     const res = await authFetch(
       `${API_BASE}/api/professors/${professorId}/tags/${tagId}/clicks`,
@@ -1357,7 +1756,7 @@ async function clickTagOnServer(professorId, tagId) {
   }
 }
 
-function submitTagInput() {
+function submitTagByName(rawName) {
   if (!isLoggedIn) return;
   if (!isCertified) {
     alert('태그 기여는 수강확인서 인증이 필요합니다.');
@@ -1365,15 +1764,18 @@ function submitTagInput() {
   }
   if (taggedProfessorIds.includes(currentProfId)) return;
 
-  const field = document.getElementById('tag-input-field');
-  const tagName = field.value.trim();
+  const tagName = (rawName || '').trim();
   if (!tagName) {
-    alert('등록할 태그 내용을 입력해 주세요. (예: 시험 범위 명확)');
+    alert('기여할 태그를 선택해 주세요.');
     return;
   }
 
   const prof = professorsData.find((p) => p.id === currentProfId);
   if (!prof) return;
+
+  // 태그 '선택(적용)'은 기존 태그에만 한다. 새 태그 생성은 관리자 전용 별도 기능.
+  // 선택한 태그의 서버 tagId를 찾아 클릭 엔드포인트로 반영(권한상 관리자만 서버 반영됨).
+  const serverTagId = findServerTagId(tagName);
 
   const existing = prof.allTags.find(
     (t) => t.name.replace(/\s/g, '') === tagName.replace(/\s/g, ''),
@@ -1381,23 +1783,12 @@ function submitTagInput() {
   if (existing) {
     existing.count += 1;
     if (existing.count > existing.max) existing.max = existing.count;
-    // 서버 tagId를 로컬 보관값 또는 전역 태그목록에서 찾아 클릭 반영
-    const tagId = existing.tagId || findServerTagId(tagName);
-    clickTagOnServer(prof.id, tagId);
+    if (!existing.tagId && serverTagId) existing.tagId = serverTagId;
+    clickTagOnServer(prof.id, existing.tagId || serverTagId);
   } else {
-    const baselineMax = Math.max(
-      10,
-      ...prof.allTags.map((t) => t.max || 10),
-    );
-    prof.allTags.push({ name: tagName, count: 1, max: baselineMax });
-    // 새로 생긴 태그는 서버에도 등록 시도(실패해도 로컬은 그대로 유지)
-    createTagOnServer(tagName).then((created) => {
-      if (created && created.tagId) {
-        const t = prof.allTags.find((x) => x.name === tagName);
-        if (t) t.tagId = created.tagId; // 서버가 준 tagId를 로컬에도 보관
-        saveProfessors();
-      }
-    });
+    const baselineMax = Math.max(10, ...prof.allTags.map((t) => t.max || 10));
+    prof.allTags.push({ name: tagName, count: 1, max: baselineMax, tagId: serverTagId });
+    clickTagOnServer(prof.id, serverTagId);
   }
 
   taggedProfessorIds.push(currentProfId);
@@ -1405,27 +1796,31 @@ function submitTagInput() {
   addPointHistory(`태그 기여: ${tagName}`, 2);
   saveProfessors();
 
-  field.value = '';
   document.getElementById('tag-input-row').classList.add('hidden');
   renderTagProgressGrid(prof);
   updateTagButtonState();
-  alert(`🏷️ [${tagName}] 태그를 등록했어요! 2포인트가 적립되었습니다.`);
+  alert(`🏷️ [${tagName}] 태그에 기여했어요! 2포인트가 적립되었습니다.`);
 }
-
-document
-  .getElementById('btn-tag-submit-confirm')
-  .addEventListener('click', submitTagInput);
-document
-  .getElementById('tag-input-field')
-  .addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') submitTagInput();
-  });
 
 function updateTagButtonState() {
   const btn = document.getElementById('btn-tag-input-trigger');
   const notice = document.getElementById('tag-notice-msg');
   const row = document.getElementById('tag-input-row');
   if (!btn) return;
+
+  // 새 태그 생성 UI는 관리자(admin)로 로그인했을 때만 노출한다.
+  const adminCreate = document.getElementById('admin-tag-create');
+  if (adminCreate) adminCreate.classList.toggle('hidden', !(isLoggedIn && isAdmin));
+
+  // 비로그인 상태: '기여 완료' 등 로그인 사용자용 문구가 남지 않도록 초기화한다.
+  if (!isLoggedIn) {
+    btn.disabled = true;
+    btn.style.opacity = '0.5';
+    btn.style.cursor = 'default';
+    if (row) row.classList.add('hidden');
+    if (notice) notice.innerText = '태그 입력은 로그인이 필요합니다.';
+    return;
+  }
 
   const alreadyTagged = taggedProfessorIds.includes(currentProfId);
   const needsCert = isLoggedIn && !isCertified;
@@ -1435,13 +1830,12 @@ function updateTagButtonState() {
   btn.style.cursor = disabled ? 'default' : 'pointer';
   if ((alreadyTagged || needsCert) && row) row.classList.add('hidden');
 
-  if (!isLoggedIn) return;
   if (notice) {
     notice.innerText = alreadyTagged
       ? '이미 이 교수님에게 태그 기여를 완료했어요. (교수당 1회)'
       : needsCert
         ? '태그 기여는 수강확인서 인증 후 가능해요. (마이페이지 > 내 정보 수정)'
-        : '태그 입력하기를 눌러 원하는 태그를 직접 작성해 보세요. (+2P)';
+        : '태그 달기를 눌러 원하는 태그를 클릭해 기여해 보세요. (+2P)';
   }
 }
 
@@ -1620,7 +2014,6 @@ function renderDetailPage(profId) {
 
   renderTagProgressGrid(prof);
   document.getElementById('tag-input-row').classList.add('hidden');
-  document.getElementById('tag-input-field').value = '';
 
   sortAndRenderReviews();
   renderDiagram(prof);
@@ -1669,16 +2062,27 @@ async function fetchReviewsFromServer(professorId) {
     recomputeProfRating(prof);
     saveProfessors();
 
-    // 백엔드가 교수의 담당 과목을 직접 주지 않으므로, 리뷰의 과목명에서 유추해 채운다
-    const derivedSubjects = [
-      ...new Set(list.map((r) => r.subjectName).filter(Boolean)),
-    ];
+    // 리뷰 응답의 subjectId+subjectName으로 '과목 선택' 드롭다운 옵션을 만든다.
+    // (별도 과목 API가 없어도 실제 서버 subjectId를 확보 → 리뷰 작성 시 서버 저장 성공)
+    const subjMap = new Map();
+    list.forEach((r) => {
+      if (r.subjectId && r.subjectName && !subjMap.has(r.subjectId))
+        subjMap.set(r.subjectId, r.subjectName);
+    });
+    prof.subjectOptions = [...subjMap.entries()].map(([subjectId, name]) => ({
+      subjectId,
+      name,
+    }));
+
+    // 담당 과목 표시도 위 과목명으로 유추해 채운다
+    const derivedSubjects = prof.subjectOptions.map((s) => s.name);
     if (derivedSubjects.length && (!prof.subjects || prof.subjects.length === 0))
       prof.subjects = derivedSubjects;
 
     // 지금 이 교수 화면을 보고 있다면 다시 그림
     if (currentProfId === prof.id) {
       sortAndRenderReviews();
+      populateReviewSubjects(prof); // 과목 선택 드롭다운 채우기
       const cntEl = document.getElementById('detail-review-count');
       if (cntEl) cntEl.innerText = `${prof.reviews.length}개 리뷰 기준`;
       const scoreEl = document.getElementById('detail-score');
@@ -1697,7 +2101,12 @@ async function fetchReviewsFromServer(professorId) {
 async function createReviewOnServer(professorId, subjectId, content) {
   if (!subjectId) {
     // 과목이 선택되지 않으면 서버 전송은 생략(로컬 리뷰는 이미 반영됨)
-    console.warn('과목(subjectId) 미선택 → 서버 리뷰 전송 생략');
+    console.info('과목(subjectId) 미선택 → 서버 리뷰 전송 생략');
+    return null;
+  }
+  // 토큰이 없거나 만료면 401이 나므로 서버 전송을 생략(로컬 리뷰는 이미 반영됨)
+  if (!canSyncToServer()) {
+    console.info('토큰 없음/만료 → 서버 리뷰 전송 생략(로컬만 반영)');
     return null;
   }
   try {
@@ -1710,7 +2119,17 @@ async function createReviewOnServer(professorId, subjectId, content) {
       },
     );
     if (!res.ok) {
-      console.warn('리뷰 서버 작성 실패:', res.status);
+      // 서버 에러 코드/메시지를 읽어 사용자에게 이유를 알려준다.
+      const err = await res.json().catch(() => ({}));
+      const code = err.code || '';
+      console.warn('리뷰 서버 작성 실패:', res.status, code, err.message || '');
+      if (code === 'SUBJECT_PROFESSOR_MISMATCH') {
+        alert(
+          '선택한 과목이 이 교수님의 담당 과목이 아니에요.\n과목을 다시 선택해 주세요. (리뷰는 화면에는 반영됩니다)',
+        );
+      } else if (err.message) {
+        console.warn('서버 메시지:', err.message);
+      }
       return null;
     }
     const body = await res.json().catch(() => ({}));
@@ -1770,47 +2189,21 @@ async function fetchProfessorDetail(professorId) {
 // ============================================================
 // 마이페이지 포인트 등급 진행바 갱신
 // ============================================================
-function updatePointTier() {
-  const tiers = [
-    { name: '새내기 리뷰어', min: 0 },
-    { name: '성실 리뷰어', min: 50 },
-    { name: '우수 리뷰어', min: 100 },
-    { name: '베테랑 리뷰어', min: 200 },
-  ];
-  let idx = 0;
-  for (let i = 0; i < tiers.length; i++)
-    if (userPoints >= tiers[i].min) idx = i;
-  const cur = tiers[idx];
-  const next = tiers[idx + 1] || null;
-
-  const nameEl = document.getElementById('tier-name');
-  const nextEl = document.getElementById('tier-next-text');
-  const fillEl = document.getElementById('tier-fill');
-  if (nameEl) nameEl.innerText = cur.name;
-  if (next) {
-    const span = next.min - cur.min;
-    const prog = Math.max(
-      0,
-      Math.min(100, ((userPoints - cur.min) / span) * 100),
-    );
-    if (fillEl) fillEl.style.width = `${prog}%`;
-    if (nextEl) nextEl.innerText = `다음 등급까지 ${next.min - userPoints}P`;
-  } else {
-    if (fillEl) fillEl.style.width = '100%';
-    if (nextEl) nextEl.innerText = '최고 등급 달성 🎉';
-  }
-}
+// 등급제(새내기/성실/우수 리뷰어 등)는 제거됨. 호출부 호환을 위해 no-op으로 남겨둔다.
+function updatePointTier() {}
 
 // ============================================================
 // 🏠 대시보드 홈 렌더링
 // ============================================================
 function renderDashboard() {
+  // 비로그인 상태에서는 포인트/저장/족보 수치를 0(또는 -)으로 표시한다.
+  // (로그인/회원가입 전에는 20P 기본 지급이 화면에 노출되지 않도록)
   const pts = document.getElementById('dash-stat-points');
-  if (pts) pts.innerText = `${userPoints}P`;
+  if (pts) pts.innerText = isLoggedIn ? `${userPoints}P` : '-';
   const bm = document.getElementById('dash-stat-bookmarks');
-  if (bm) bm.innerText = bookmarkedIds.length;
+  if (bm) bm.innerText = isLoggedIn ? bookmarkedIds.length : 0;
   const jk = document.getElementById('dash-stat-jokbo');
-  if (jk) jk.innerText = purchasedJokbo.length;
+  if (jk) jk.innerText = isLoggedIn ? purchasedJokbo.length : 0;
 
   const greetEl = document.getElementById('dash-greeting');
   if (greetEl) {
@@ -1864,6 +2257,7 @@ function dashNavigate(dest) {
       document.getElementById('menu-jokbo'),
     );
     renderJokboStore();
+    loadAllExamArchivesForStore();
   } else if (dest === 'mypage') {
     switchView(
       document.getElementById('view-mypage'),
@@ -1991,6 +2385,7 @@ document.getElementById('menu-jokbo').addEventListener('click', () => {
     document.getElementById('menu-jokbo'),
   );
   renderJokboStore();
+  loadAllExamArchivesForStore(); // 서버 족보를 상점에 불러오기
 });
 document.getElementById('menu-mypage').addEventListener('click', () => {
   switchView(
@@ -2084,6 +2479,7 @@ document.body.addEventListener('click', (e) => {
 function performLogout() {
   isLoggedIn = false;
   isCertified = false;
+  isAdmin = false;
   currentUserEmail = null;
   setCurrentUserEmail(null);
   clearToken(); // 저장된 로그인 토큰 제거
@@ -2108,6 +2504,176 @@ function performLogout() {
 document
   .getElementById('btn-mypage-logout')
   .addEventListener('click', performLogout);
+
+// ============================================================
+// 관리자 페이지 (모달) - 회원 목록 + 상세보기
+// ============================================================
+function openAdminModal() {
+  if (!isAdmin) {
+    alert('관리자만 접근할 수 있는 페이지입니다.');
+    return;
+  }
+  switchAdminTab('members'); // 열 때 회원 목록 탭으로
+  renderAdminMemberList();
+  renderAdminReportList();
+  document.getElementById('admin-modal').classList.remove('hidden');
+}
+
+// 관리자 모달 탭 전환 (회원 목록 / 신고된 리뷰)
+function switchAdminTab(tab) {
+  document.querySelectorAll('.admin-tab').forEach((b) => {
+    b.classList.toggle('active', b.getAttribute('data-atab') === tab);
+  });
+  document
+    .getElementById('admin-tab-members')
+    .classList.toggle('hidden', tab !== 'members');
+  document
+    .getElementById('admin-tab-reports')
+    .classList.toggle('hidden', tab !== 'reports');
+  if (tab === 'reports') renderAdminReportList();
+}
+
+// 신고된 리뷰 목록 렌더 (로컬 신고 접수 내역 기반)
+function renderAdminReportList() {
+  const container = document.getElementById('admin-report-list');
+  if (!container) return;
+  const reports = getReportsLog();
+
+  if (!reports.length) {
+    container.innerHTML =
+      '<div class="report-empty">접수된 신고가 없습니다.</div>';
+    return;
+  }
+
+  // reviewId로 실제 리뷰(작성자/내용)를 찾아 함께 보여준다.
+  const findReview = (id) => {
+    for (const p of professorsData) {
+      const r = (p.reviews || []).find((rv) => rv.id === id);
+      if (r) return { review: r, prof: p };
+    }
+    return null;
+  };
+
+  container.innerHTML = reports
+    .map((rep) => {
+      const found = findReview(rep.reviewId);
+      const reviewText = found
+        ? `${found.prof.name} · ${found.review.writer}: “${found.review.text}”`
+        : `리뷰 #${rep.reviewId} (본문 없음/서버 리뷰)`;
+      const when = (rep.at || '').slice(0, 10).replace(/-/g, '.');
+      return `
+      <div class="report-card">
+        <div class="rc-reason">🚩 ${rep.reason || '(사유 없음)'}</div>
+        <div class="rc-review">${reviewText}</div>
+        <div class="rc-meta">신고자: ${rep.reporter || '익명'}${when ? ' · ' + when : ''}</div>
+      </div>`;
+    })
+    .join('');
+}
+
+function renderAdminMemberList() {
+  const container = document.getElementById('admin-member-list');
+  if (!container) return;
+  const users = getUsers();
+  const emails = Object.keys(users);
+
+  if (emails.length === 0) {
+    container.innerHTML =
+      '<div style="text-align:center; padding:30px; color:var(--text-muted); font-size:13px;">가입된 회원이 없습니다.</div>';
+    return;
+  }
+
+  container.innerHTML = emails
+    .map((email) => {
+      const u = users[email] || {};
+      const admin = computeIsAdmin(email, u);
+      const roleBadge = admin
+        ? '<span class="admin-role-badge is-admin">ADMIN</span>'
+        : '<span class="admin-role-badge">USER</span>';
+      return `
+      <div class="admin-member-row">
+        <div class="amr-main">
+          <div class="amr-name">${u.nickname || u.name || email}${roleBadge}</div>
+          <div class="amr-sub">${email} · ${u.points ?? 0}P</div>
+        </div>
+        <button class="admin-detail-btn" data-email="${email}">상세보기</button>
+      </div>`;
+    })
+    .join('');
+}
+
+function renderMemberDetail(email) {
+  const users = getUsers();
+  const u = users[email];
+  if (!u) return;
+  const admin = computeIsAdmin(email, u);
+  const rows = [
+    ['이름', u.name || '-'],
+    ['닉네임', u.nickname || '-'],
+    ['이메일', email],
+    ['연락처', u.phone || '-'],
+    ['가입일', u.joinDate || '-'],
+    ['보유 포인트', `${u.points ?? 0}P`],
+    ['수강확인서 인증', u.isCertified ? '인증됨' : '미인증'],
+    ['보유 족보 수', (u.purchasedJokboIds || []).length],
+    ['권한', admin ? '관리자(ADMIN)' : '일반회원(USER)'],
+  ];
+  document.getElementById('member-detail-body').innerHTML = rows
+    .map(
+      ([label, value]) =>
+        `<div class="mdb-row"><span class="mdb-label">${label}</span><span class="mdb-value">${value}</span></div>`,
+    )
+    .join('');
+  document.getElementById('member-detail-modal').classList.remove('hidden');
+}
+
+// 신고 모달 이벤트
+document.getElementById('report-reason-chips').addEventListener('click', (e) => {
+  const chip = e.target.closest('.report-reason-chip');
+  if (!chip) return;
+  const input = document.getElementById('report-reason-input');
+  if (input) input.value = chip.getAttribute('data-reason');
+});
+document
+  .getElementById('btn-submit-report')
+  .addEventListener('click', submitReport);
+document
+  .getElementById('btn-close-report')
+  .addEventListener('click', () =>
+    document.getElementById('report-modal').classList.add('hidden'),
+  );
+document.getElementById('report-modal').addEventListener('click', (e) => {
+  if (e.target === document.getElementById('report-modal'))
+    document.getElementById('report-modal').classList.add('hidden');
+});
+
+document.getElementById('menu-admin').addEventListener('click', openAdminModal);
+document
+  .getElementById('btn-close-admin')
+  .addEventListener('click', () =>
+    document.getElementById('admin-modal').classList.add('hidden'),
+  );
+document
+  .getElementById('btn-close-member-detail')
+  .addEventListener('click', () =>
+    document.getElementById('member-detail-modal').classList.add('hidden'),
+  );
+document.getElementById('admin-member-list').addEventListener('click', (e) => {
+  const btn = e.target.closest('.admin-detail-btn');
+  if (btn) renderMemberDetail(btn.getAttribute('data-email'));
+});
+// 관리자 모달 탭 버튼 (회원 목록 / 신고된 리뷰)
+document.querySelectorAll('.admin-tab').forEach((b) => {
+  b.addEventListener('click', () => switchAdminTab(b.getAttribute('data-atab')));
+});
+// 배경(딤) 클릭 시 관리자 모달 닫기
+['admin-modal', 'member-detail-modal'].forEach((id) => {
+  const el = document.getElementById(id);
+  if (el)
+    el.addEventListener('click', (e) => {
+      if (e.target === el) el.classList.add('hidden');
+    });
+});
 document.getElementById('btn-mypage-back').addEventListener('click', () => {
   switchView(
     document.getElementById('view-dashboard'),
@@ -2195,16 +2761,19 @@ document.addEventListener('DOMContentLoaded', () => {
 // ============================================================
 function detectDialogType(msg) {
   const m = String(msg);
-  if (
-    /(실패|오류|올바르지|부족합니다|없습니다|불가|취소되었|에러|권한이 없|만료)/.test(m) ||
-    /[❌🔒]/.test(m)
-  )
-    return 'error';
+  // 성공을 먼저 판정한다. (성공 문구/이모지가 있으면 성공으로 확정)
+  // 이모지 정규식엔 반드시 u 플래그를 붙인다. u가 없으면 📝·🎁 등이
+  // 🔒과 같은 서로게이트 코드(\uD83D)를 공유해 오류로 잘못 분류된다.
   if (
     /(성공|완료|환영|적립|등록되었|등록했|축하|구매했|되었습니다|저장되었|삭제되었|수정되었)/.test(m) ||
-    /[🎉✅🎁📝🏷🔑✨🎊]/.test(m)
+    /[🎉✅🎁📝🏷🔑✨🎊]/u.test(m)
   )
     return 'success';
+  if (
+    /(실패|오류|올바르지|부족합니다|없습니다|불가|취소되었|에러|권한이 없|만료)/.test(m) ||
+    /[❌🔒]/u.test(m)
+  )
+    return 'error';
   return 'info';
 }
 
